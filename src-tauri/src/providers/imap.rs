@@ -424,7 +424,7 @@ impl Imap {
                         // Keep the "sent by me" marker set at ingest time.
                         f.sent |= r.flags.sent;
                         if f != r.flags {
-                            ctx.db.update_flags(&acc, &r.remote_id, f, None, None)?;
+                            ctx.db.sync_flags(&acc, &r.remote_id, f, None, None)?;
                             changed = true;
                         }
                     }

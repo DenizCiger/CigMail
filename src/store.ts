@@ -111,6 +111,54 @@ interface State {
 let toastId = 1;
 let refreshTimer: number | undefined;
 let refreshSeq = 0;
+
+/**
+ * Optimistic changes not yet confirmed by a refresh. A refresh that started
+ * before an action reached the database returns stale rows; without this,
+ * archived threads would briefly pop back in when acting quickly.
+ */
+interface Override {
+  hidden?: boolean;
+  unread?: boolean;
+  starred?: boolean;
+  expires: number;
+}
+const overrides = new Map<string, Override>();
+const OVERRIDE_MS = 15_000;
+
+function setOverride(ids: string[], patch: Omit<Override, "expires">) {
+  const expires = Date.now() + OVERRIDE_MS;
+  for (const id of ids) overrides.set(id, { ...overrides.get(id), ...patch, expires });
+}
+
+function clearOverride(ids: string[]) {
+  for (const id of ids) overrides.delete(id);
+}
+
+/** Applies pending overrides to fresh rows and drops the ones the rows already reflect. */
+function applyOverrides(list: ThreadSummary[], complete: boolean): ThreadSummary[] {
+  const now = Date.now();
+  const present = new Set(list.map((t) => t.id));
+  for (const [id, o] of overrides) {
+    // A hidden thread missing from a full list means the backend caught up.
+    if (o.expires < now || (complete && o.hidden && !present.has(id))) overrides.delete(id);
+  }
+  if (!overrides.size) return list;
+  const out: ThreadSummary[] = [];
+  for (const t of list) {
+    const o = overrides.get(t.id);
+    if (!o) {
+      out.push(t);
+      continue;
+    }
+    if (o.hidden) continue;
+    const confirmed =
+      (o.unread === undefined || o.unread === t.unread) && (o.starred === undefined || o.starred === t.starred);
+    if (confirmed) overrides.delete(t.id);
+    out.push({ ...t, unread: o.unread ?? t.unread, starred: o.starred ?? t.starred });
+  }
+  return out;
+}
 const PAGE = 300;
 
 /** Whether an action makes a thread disappear from the current view. */
@@ -259,7 +307,8 @@ export const useStore = create<State>((set, get) => ({
         offset,
       });
       if (seq !== refreshSeq) return;
-      const next = opts?.more ? [...threads, ...list] : list;
+      const fresh = applyOverrides(list, !opts?.more && list.length < limit);
+      const next = opts?.more ? [...threads, ...fresh] : fresh;
       set((st) => {
         // Keep the cursor on the same thread when the list changes under it.
         const currentId = st.threads[st.cursor]?.id;
@@ -371,6 +420,7 @@ export const useStore = create<State>((set, get) => ({
 
     // Optimistic UI: update or drop rows immediately.
     if (removes) {
+      setOverride(targets, { hidden: true });
       const remaining = threads.filter((t) => !targets.includes(t.id));
       const firstIdx = threads.findIndex((t) => targets.includes(t.id));
       const newCursor = Math.min(firstIdx >= 0 ? firstIdx : cursor, Math.max(0, remaining.length - 1));
@@ -389,6 +439,10 @@ export const useStore = create<State>((set, get) => ({
         }
       }
     } else {
+      if (action === "read" || action === "unread") setOverride(targets, { unread: action === "unread" });
+      if (action === "star" || action === "unstar") setOverride(targets, { starred: action === "star" });
+      // e.g. "move to inbox" from Done: make sure nothing keeps it hidden.
+      if (action === "inbox") clearOverride(targets);
       set({
         threads: threads.map((t) =>
           targets.includes(t.id)
@@ -405,6 +459,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.threadAction(targets, action);
     } catch (e) {
+      clearOverride(targets);
       get().toast(errorMessage(e), { kind: "error" });
       get().refresh();
       return;
@@ -414,7 +469,10 @@ export const useStore = create<State>((set, get) => ({
     const n = targets.length;
     const label = `${actionLabel[action]}${n > 1 ? ` · ${n} conversations` : ""}`;
     if (inv) {
-      get().pushUndo(label, () => api.threadAction(targets, inv));
+      get().pushUndo(label, () => {
+        clearOverride(targets);
+        return api.threadAction(targets, inv);
+      });
     }
     get().toast(label, {
       action: inv ? { label: "Undo", run: () => get().undo() } : undefined,
@@ -438,6 +496,7 @@ export const useStore = create<State>((set, get) => ({
   snoozeThreads: async (ids, until) => {
     const { threads, view, cursor, openThreadId } = get();
     if (until && view !== "snoozed") {
+      setOverride(ids, { hidden: true });
       const remaining = threads.filter((t) => !ids.includes(t.id));
       const newCursor = Math.min(cursor, Math.max(0, remaining.length - 1));
       set({
@@ -450,11 +509,15 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.snooze(ids, until);
     } catch (e) {
+      clearOverride(ids);
       get().toast(errorMessage(e), { kind: "error" });
       return;
     }
     if (until) {
-      get().pushUndo("Snoozed", () => api.snooze(ids, null));
+      get().pushUndo("Snoozed", () => {
+        clearOverride(ids);
+        return api.snooze(ids, null);
+      });
       get().toast(`Snoozed until ${new Date(until * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" })}`, {
         action: { label: "Undo", run: () => get().undo() },
       });

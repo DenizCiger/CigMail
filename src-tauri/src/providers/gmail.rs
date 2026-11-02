@@ -240,7 +240,7 @@ impl Gmail {
             }
             let updated =
                 ctx.db
-                    .update_flags(&ctx.account.id, &id, flags_from_labels(&l), Some(&l), None)?;
+                    .sync_flags(&ctx.account.id, &id, flags_from_labels(&l), Some(&l), None)?;
             if !updated {
                 to_fetch.push(id);
             }

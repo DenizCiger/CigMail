@@ -162,7 +162,7 @@ impl Graph {
                     continue;
                 }
                 let flags = st.flags(&item);
-                if ctx.db.update_flags(
+                if ctx.db.sync_flags(
                     &ctx.account.id,
                     &item.id,
                     flags,

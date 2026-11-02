@@ -595,6 +595,31 @@ impl Db {
         })
     }
 
+    /// Like `update_flags`, but for state read from the server during sync:
+    /// messages with a queued local change keep their local flags until that
+    /// change has been pushed, so a sync can't briefly undo what the user did.
+    pub fn sync_flags(
+        &self,
+        account_id: &str,
+        remote_id: &str,
+        flags: Flags,
+        labels: Option<&[String]>,
+        folder: Option<&str>,
+    ) -> Result<bool> {
+        let id = local_id(account_id, remote_id);
+        let pending: bool = self.with(|c| {
+            Ok(c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM ops WHERE account_id = ?1 AND instr(payload, ?2) > 0)",
+                params![account_id, format!("\"{id}\"")],
+                |r| r.get(0),
+            )?)
+        })?;
+        if pending {
+            return self.message_exists(account_id, remote_id);
+        }
+        self.update_flags(account_id, remote_id, flags, labels, folder)
+    }
+
     pub fn delete_message(&self, account_id: &str, remote_id: &str) -> Result<()> {
         let id = local_id(account_id, remote_id);
         self.tx(|c| {
@@ -1396,6 +1421,16 @@ mod tests {
         db.set_snooze("a1:t2", Some(now() + 3600)).unwrap();
         assert_eq!(db.list_threads(&filter("inbox", None)).unwrap().len(), 0);
         assert_eq!(db.list_threads(&filter("snoozed", None)).unwrap().len(), 1);
+
+        // A sync must not undo a change that's still queued for the server.
+        db.push_op("a1", &serde_json::json!({ "action": "archive", "ids": ["a1:m1"] })).unwrap();
+        let mut server = Flags { inbox: true, read: true, ..Default::default() };
+        assert!(db.sync_flags("a1", "m1", server, None, None).unwrap());
+        assert_eq!(db.list_threads(&filter("inbox", None)).unwrap().iter().filter(|t| t.id == "a1:t1").count(), 0);
+        let (op_id, _, _) = db.pending_ops::<serde_json::Value>("a1").unwrap()[0].clone();
+        db.finish_op(op_id).unwrap();
+        server.inbox = false;
+        db.sync_flags("a1", "m1", server, None, None).unwrap();
 
         db.delete_message("a1", "m3").unwrap();
         assert!(db.list_threads(&filter("snoozed", None)).unwrap().is_empty());
