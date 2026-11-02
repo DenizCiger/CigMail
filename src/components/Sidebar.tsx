@@ -14,12 +14,13 @@ import {
   Trash2,
   AlertCircle,
   Layers,
+  Keyboard,
   type LucideIcon,
 } from "lucide-react";
 import { useStore } from "../store";
 import type { View } from "../lib/types";
-import { AccountDot, Kbd, Spinner } from "./ui";
-import { accountLabel } from "../lib/format";
+import { AccountDot, Spinner } from "./ui";
+import { accountLabel, mod } from "../lib/format";
 
 const NAV: { view: View; label: string; icon: LucideIcon; keys: string[] }[] = [
   { view: "inbox", label: "Inbox", icon: Inbox, keys: ["G", "I"] },
@@ -40,6 +41,7 @@ function NavItem({
   icon: Icon,
   label,
   count,
+  keys,
   onClick,
   title,
   children,
@@ -48,6 +50,7 @@ function NavItem({
   icon?: LucideIcon;
   label: string;
   count?: number;
+  keys?: string[];
   onClick: () => void;
   title?: string;
   children?: React.ReactNode;
@@ -65,7 +68,21 @@ function NavItem({
       {children}
       <span className="flex-1 truncate text-left">{label}</span>
       {!!count && <span className="text-xs tabular-nums text-fg-3">{count}</span>}
+      {keys && <KeyHint keys={keys} />}
     </button>
+  );
+}
+
+/** A quiet shortcut label, e.g. "G I", that brightens on hover. */
+function KeyHint({ keys }: { keys: string[] }) {
+  return (
+    <span className="flex shrink-0 items-center gap-[3px] text-fg-4 transition-colors group-hover:text-fg-3">
+      {keys.map((k, i) => (
+        <span key={i} className="min-w-[13px] rounded-[3px] bg-hover px-[3px] text-center text-[10px] font-medium leading-[15px]">
+          {k === "Mod" ? mod : k}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -106,7 +123,7 @@ export function Sidebar() {
       >
         <Search size={14} />
         <span className="flex-1 text-left">Search</span>
-        <Kbd keys={["/"]} />
+        <KeyHint keys={["/"]} />
       </button>
 
       <nav className="flex flex-col gap-px">
@@ -117,12 +134,13 @@ export function Sidebar() {
             label={n.label}
             active={view === n.view}
             count={n.view === "inbox" ? counts["filtered"] : undefined}
+            keys={n.keys}
             onClick={() => setView(n.view)}
             title={`${n.label} · ${n.keys.join(" then ")}`}
           />
         ))}
         {MORE.map((n) => (
-          <NavItem key={n.view} icon={n.icon} label={n.label} active={view === n.view} onClick={() => setView(n.view)} title={`${n.label} · ${n.keys.join(" then ")}`} />
+          <NavItem key={n.view} icon={n.icon} label={n.label} keys={n.keys} active={view === n.view} onClick={() => setView(n.view)} title={`${n.label} · ${n.keys.join(" then ")}`} />
         ))}
       </nav>
 
@@ -144,6 +162,7 @@ export function Sidebar() {
             title="Unified inbox  ·  G then 0  ·  ] / Shift+] to cycle"
             active={accountFilter === null}
             count={counts["inbox"]}
+            keys={["G", "0"]}
             onClick={() => setAccountFilter(null)}
           />
         )}
@@ -157,6 +176,7 @@ export function Sidebar() {
               title={`${a.email}${i < 9 ? `  ·  G then ${i + 1}` : ""}${err ? `\n${st?.message ?? a.lastError}` : ""}`}
               active={accountFilter === a.id}
               count={counts[`inbox:${a.id}`]}
+              keys={i < 9 ? ["G", String(i + 1)] : undefined}
               onClick={() => setAccountFilter(accountFilter === a.id ? null : a.id)}
             >
               <span className="flex w-[15px] justify-center">
@@ -183,13 +203,14 @@ export function Sidebar() {
 
       <div className="flex-1" />
       <div className="flex items-center gap-1 px-0.5">
-        <NavItem icon={Settings} label="Settings" onClick={() => set({ settingsSection: "general" })} />
+        <NavItem icon={Settings} label="Settings" keys={["Mod", ","]} onClick={() => set({ settingsSection: "general" })} />
         <button
           onClick={() => set({ help: true })}
-          title="Keyboard shortcuts"
-          className="flex h-7 items-center rounded-md px-1.5 text-fg-3 hover:bg-hover"
+          title="Keyboard shortcuts  ·  ?"
+          aria-label="Keyboard shortcuts"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-3 hover:bg-hover hover:text-fg"
         >
-          <Kbd keys={["?"]} />
+          <Keyboard size={15} strokeWidth={1.8} />
         </button>
       </div>
     </aside>

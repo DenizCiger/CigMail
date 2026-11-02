@@ -1,8 +1,16 @@
 import clsx from "clsx";
-import { forwardRef, useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { colorFor, initials, mod } from "../lib/format";
 import type { Address } from "../lib/types";
+
+export function focusables(root: HTMLElement): HTMLElement[] {
+  return [
+    ...root.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])",
+    ),
+  ].filter((el) => el.offsetParent !== null);
+}
 
 export function Kbd({ keys, className }: { keys: string[]; className?: string }) {
   return (
@@ -174,17 +182,32 @@ export function Modal({
   className?: string;
   align?: "center" | "top";
 }) {
+  const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
+      } else if (e.key === "Tab" && panel.current) {
+        // Keep Tab cycling inside the dialog instead of the page behind it.
+        const items = focusables(panel.current);
+        if (!items.length) return;
+        const i = items.indexOf(document.activeElement as HTMLElement);
+        const next = e.shiftKey ? (i <= 0 ? items.length - 1 : i - 1) : i === -1 || i === items.length - 1 ? 0 : i + 1;
+        e.preventDefault();
+        items[next].focus();
       }
     };
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
   }, [open, onClose]);
+  useEffect(() => {
+    if (!open || !panel.current) return;
+    if (panel.current.contains(document.activeElement)) return;
+    const preferred = panel.current.querySelector<HTMLElement>("[data-autofocus]");
+    (preferred ?? focusables(panel.current)[0])?.focus();
+  }, [open]);
   if (!open) return null;
   return (
     <div
@@ -196,7 +219,9 @@ export function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={clsx("rounded-xl bg-elev shadow-pop animate-in overflow-hidden", className)}>{children}</div>
+      <div ref={panel} role="dialog" aria-modal className={clsx("rounded-xl bg-elev shadow-pop animate-in overflow-hidden", className)}>
+        {children}
+      </div>
     </div>
   );
 }

@@ -24,9 +24,24 @@ pub enum Term {
     Not(Box<Term>),
 }
 
+const KEYS: &[&str] = &["from", "to", "cc", "subject", "account", "is", "has", "in", "category", "cat"];
+
 pub fn parse(q: &str) -> Vec<Term> {
     let mut terms = Vec::new();
-    for token in tokenize(q) {
+    // Allow "from: alice" as well as "from:alice".
+    let mut tokens: Vec<String> = Vec::new();
+    let mut raw = tokenize(q).into_iter().peekable();
+    while let Some(t) = raw.next() {
+        let bare = t.trim_start_matches('-').trim_end_matches(':').to_ascii_lowercase();
+        if t.ends_with(':') && KEYS.contains(&bare.as_str()) {
+            if let Some(next) = raw.next() {
+                tokens.push(format!("{t}{next}"));
+                continue;
+            }
+        }
+        tokens.push(t);
+    }
+    for token in tokens {
         let (neg, tok) = match token.strip_prefix('-') {
             Some(rest) if !rest.is_empty() => (true, rest.to_string()),
             _ => (false, token),
@@ -97,6 +112,10 @@ fn term_sql(term: &Term, vals: &mut Vec<Value>) -> Option<String> {
         format!("EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND {cond})")
     };
     Some(match term {
+        Term::From(v) if v.eq_ignore_ascii_case("me") => exists("m.in_sent = 1"),
+        Term::To(v) if v.eq_ignore_ascii_case("me") => exists(
+            "EXISTS (SELECT 1 FROM accounts a WHERE lower(m.to_text) LIKE '%' || lower(a.email) || '%')",
+        ),
         Term::From(v) => {
             vals.push(like(v));
             vals.push(like(v));
@@ -180,6 +199,12 @@ mod tests {
                 Term::Is("unread".into()),
             ]
         );
+    }
+
+    #[test]
+    fn accepts_space_after_operator() {
+        assert_eq!(parse("from: alice is: unread"), vec![Term::From("alice".into()), Term::Is("unread".into())]);
+        assert_eq!(parse("-from: bob"), vec![Term::Not(Box::new(Term::From("bob".into())))]);
     }
 
     #[test]

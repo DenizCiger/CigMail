@@ -6,10 +6,15 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Copy,
   Download,
   FileIcon,
   Forward,
+  Inbox,
   MailOpen,
+  Moon,
+  PanelRight,
+  Sun,
   Paperclip,
   RefreshCw,
   Reply,
@@ -26,6 +31,8 @@ import { displayName, formatBytes, longDate, shortDate } from "../lib/format";
 import type { Message, ThreadDetail } from "../lib/types";
 import { Avatar, IconButton, Kbd, Spinner } from "./ui";
 import { EmailFrame } from "./EmailFrame";
+import { writeText } from "../lib/clipboard";
+import { emailIsDark, toggleEmailTheme } from "../lib/commands";
 import { Composer } from "./Composer";
 
 function Recipients({ m, me }: { m: Message; me: string[] }) {
@@ -91,10 +98,25 @@ function MessageCard({
   me: string[];
 }) {
   const unsubscribe = m.listUnsubscribe?.match(/<(https?:[^>]+)>/)?.[1];
+  const reply = useStore((s) => s.reply);
+  const openMenu = useStore((s) => s.openMenu);
+  const toast = useStore((s) => s.toast);
+  const onContextMenu = (e: React.MouseEvent) => {
+    if (window.getSelection()?.toString()) return;
+    e.preventDefault();
+    openMenu(e.clientX, e.clientY, [
+      { label: "Reply to this message", icon: Reply, run: () => reply("reply", m.id) },
+      { label: "Reply all", icon: ReplyAll, run: () => reply("replyAll", m.id) },
+      { label: "Forward this message", icon: Forward, run: () => reply("forward", m.id, false) },
+      { label: `Copy ${m.from.email}`, icon: Copy, separator: true, run: () => writeText(m.from.email).then(() => toast("Copied")) },
+      { label: expanded ? "Collapse" : "Expand", icon: expanded ? ChevronUp : ChevronDown, run: onToggle },
+    ]);
+  };
   if (!expanded) {
     return (
       <button
         onClick={onToggle}
+        onContextMenu={onContextMenu}
         className="flex w-full items-center gap-3 border-b border-line px-6 py-2.5 text-left hover:bg-hover"
       >
         <Avatar address={m.from} size={24} />
@@ -109,7 +131,7 @@ function MessageCard({
   }
   return (
     <article className="border-b border-line px-6 pb-6 pt-4">
-      <header className="mb-4 flex items-start gap-3">
+      <header className="mb-4 flex items-start gap-3" onContextMenu={onContextMenu}>
         <Avatar address={m.from} size={32} />
         <div className="min-w-0 flex-1 cursor-pointer" onClick={onToggle}>
           <div className="flex items-baseline gap-2">
@@ -130,18 +152,14 @@ function MessageCard({
         </div>
       </header>
       <div className="pl-11 selectable">
-        {m.bodyHtml ? (
-          <EmailFrame html={m.bodyHtml} sender={m.from.email} />
-        ) : (
-          <div className="prose-plain text-fg">{m.bodyText ?? m.snippet}</div>
-        )}
+        <EmailFrame html={m.bodyHtml} text={m.bodyText ?? m.snippet} sender={m.from.email} />
         <Attachments m={m} />
       </div>
     </article>
   );
 }
 
-function AiSummary({ detail }: { detail: ThreadDetail }) {
+function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean }) {
   const ai = useStore((s) => s.ai);
   const settings = useStore((s) => s.settings);
   const set = useStore((s) => s.set);
@@ -183,7 +201,8 @@ function AiSummary({ detail }: { detail: ThreadDetail }) {
 
   const long =
     detail.messages.length >= 2 || detail.messages.some((m) => (m.bodyText?.length ?? 0) > 1200);
-  const auto = settings.ai_auto_summary !== "false";
+  // Previewing while skimming with J/K shouldn't burn through AI usage.
+  const auto = settings.ai_auto_summary !== "false" && !preview;
 
   useEffect(() => {
     setText(detail.thread.aiSummary);
@@ -257,7 +276,7 @@ function AiSummary({ detail }: { detail: ThreadDetail }) {
   );
 }
 
-export function ThreadView({ id }: { id: string }) {
+export function ThreadView({ id, preview = false }: { id: string; preview?: boolean }) {
   const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
@@ -272,7 +291,21 @@ export function ThreadView({ id }: { id: string }) {
   const threads = useStore((s) => s.threads);
   const cursor = useStore((s) => s.cursor);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const view = useStore((s) => s.view);
+  useStore((s) => s.settings.email_theme);
+  const emailDark = emailIsDark();
   const me = accounts.map((a) => a.email);
+
+  // In the preview pane, count a thread as read once you've looked at it for a moment.
+  useEffect(() => {
+    if (!preview) return;
+    const timer = window.setTimeout(() => {
+      const st = useStore.getState();
+      const t = st.threads.find((x) => x.id === id);
+      if (t?.unread && st.settings.mark_read_on_open !== "false") st.act("read", [id], { silent: true });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [id, preview]);
   const account = accounts.find((a) => a.id === detail?.thread.accountId);
 
   const load = useCallback(
@@ -358,17 +391,27 @@ export function ThreadView({ id }: { id: string }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
-        <IconButton label="Back" shortcut={["Esc"]} onClick={closeThread}>
-          <ArrowLeft size={15} />
-        </IconButton>
-        <div className="mx-1 h-4 w-px bg-line-strong" />
-        <IconButton label="Done" shortcut={["E"]} onClick={() => act("archive")}>
-          <Archive size={15} />
-        </IconButton>
+        {!preview && (
+          <>
+            <IconButton label="Back" shortcut={["Esc"]} onClick={closeThread}>
+              <ArrowLeft size={15} />
+            </IconButton>
+            <div className="mx-1 h-4 w-px bg-line-strong" />
+          </>
+        )}
+        {t?.inInbox === false || view === "trash" || view === "spam" ? (
+          <IconButton label={view === "trash" ? "Restore from trash" : view === "spam" ? "Not spam" : "Move to inbox"} shortcut={["E"]} onClick={() => act("inbox", [id])}>
+            <Inbox size={15} />
+          </IconButton>
+        ) : (
+          <IconButton label="Done" shortcut={["E"]} onClick={() => act("archive", [id])}>
+            <Archive size={15} />
+          </IconButton>
+        )}
         <IconButton label="Snooze" shortcut={["H"]} onClick={() => set({ snoozeFor: [id] })}>
           <Clock size={15} />
         </IconButton>
-        <IconButton label="Trash" shortcut={["#"]} onClick={() => act("trash")}>
+        <IconButton label="Trash" shortcut={["⌫"]} onClick={() => act("trash", [id])}>
           <Trash2 size={15} />
         </IconButton>
         <IconButton label="Star" shortcut={["S"]} onClick={toggleStar}>
@@ -378,6 +421,14 @@ export function ThreadView({ id }: { id: string }) {
           <MailOpen size={15} />
         </IconButton>
         <div className="flex-1" />
+        <IconButton label={emailDark ? "Show emails light" : "Show emails dark"} shortcut={["Shift", "L"]} onClick={toggleEmailTheme}>
+          {emailDark ? <Sun size={15} /> : <Moon size={15} />}
+        </IconButton>
+        {!preview && (
+          <IconButton label="Show preview pane" shortcut={["P"]} onClick={() => { useStore.getState().togglePreviewPane(); closeThread(); }}>
+            <PanelRight size={15} />
+          </IconButton>
+        )}
         {threads.length > 0 && (
           <span className="mr-2 text-xs tabular-nums text-fg-3">
             {cursor + 1} / {threads.length}
@@ -406,7 +457,7 @@ export function ThreadView({ id }: { id: string }) {
             )}
           </div>
 
-          {detail && <AiSummary detail={detail} />}
+          {detail && <AiSummary detail={detail} preview={preview} />}
 
           <div className="mt-4 border-t border-line">
             {!detail &&

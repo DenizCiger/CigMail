@@ -18,7 +18,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useStore } from "../store";
 import { api, errorMessage } from "../lib/api";
 import type { Account, AccountKind, ImapConfig, ModelInfo, Split } from "../lib/types";
-import { Button, Field, IconButton, Input, Modal, ProviderGlyph, Select, Spinner, Switch } from "./ui";
+import { Button, Field, IconButton, Input, Modal, ProviderGlyph, Select, Spinner, Switch, focusables } from "./ui";
 
 const SECTIONS = [
   { id: "general", label: "General", icon: Settings2 },
@@ -35,11 +35,36 @@ export function Settings() {
   const close = () => set({ settingsSection: null });
   return (
     <Modal open onClose={close} className="flex h-[min(680px,86vh)] w-[min(940px,92vw)]">
-      <nav className="flex w-52 shrink-0 flex-col gap-px border-r border-line bg-elev-2 p-2.5">
+      <nav
+        role="tablist"
+        aria-orientation="vertical"
+        className="flex w-52 shrink-0 flex-col gap-px border-r border-line bg-elev-2 p-2.5"
+        onKeyDown={(e) => {
+          const ids = SECTIONS.map((x) => x.id);
+          const i = ids.indexOf(section);
+          if (e.key === "ArrowDown" || e.key === "j" || e.key === "ArrowUp" || e.key === "k") {
+            e.preventDefault();
+            const next = ids[(i + (e.key === "ArrowDown" || e.key === "j" ? 1 : -1) + ids.length) % ids.length];
+            set({ settingsSection: next });
+            window.setTimeout(() => document.getElementById(`settings-tab-${next}`)?.focus(), 0);
+          } else if (e.key === "ArrowRight" || e.key === "l") {
+            e.preventDefault();
+            // Deferred like the section switch above, so fast key presses apply in order.
+            window.setTimeout(() => {
+              const content = document.getElementById("settings-content");
+              if (content) focusables(content)[0]?.focus();
+            }, 0);
+          }
+        }}
+      >
         <div className="px-2 pb-3 pt-1.5 text-[13px] font-semibold">Settings</div>
         {SECTIONS.map((s) => (
           <button
             key={s.id}
+            id={`settings-tab-${s.id}`}
+            role="tab"
+            aria-selected={section === s.id}
+            data-autofocus={section === s.id ? true : undefined}
             onClick={() => set({ settingsSection: s.id })}
             className={clsx(
               "flex h-7 items-center gap-2 rounded-md px-2 text-[13px]",
@@ -57,9 +82,22 @@ export function Settings() {
           <Keyboard size={14} className="text-fg-3" />
           Shortcuts
         </button>
+        <div className="flex-1" />
+        <div className="px-2 pb-1 text-[11px] leading-relaxed text-fg-4">↑ ↓ switch section · → into section · ← back · Esc close</div>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto px-8 py-7">
+        <div
+          id="settings-content"
+          className="flex-1 overflow-y-auto px-8 py-7"
+          onKeyDown={(e) => {
+            // Left arrow from content (outside text fields) goes back to the section list.
+            const t = e.target as HTMLElement;
+            if (e.key === "ArrowLeft" && !t.closest("input, textarea, select")) {
+              e.preventDefault();
+              document.getElementById(`settings-tab-${section}`)?.focus();
+            }
+          }}
+        >
           {section === "general" && <General />}
           {section === "accounts" && <Accounts />}
           {section === "splits" && <Splits />}

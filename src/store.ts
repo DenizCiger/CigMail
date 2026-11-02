@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { LucideIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { api, errorMessage } from "./lib/api";
 import type {
@@ -20,6 +21,16 @@ export interface Toast {
   action?: { label: string; run: () => void };
   /** ms; 0 = sticky */
   duration: number;
+}
+
+export interface MenuItem {
+  label: string;
+  icon?: LucideIcon;
+  keys?: string[];
+  run: () => void;
+  danger?: boolean;
+  /** Draws a divider above this item. */
+  separator?: boolean;
 }
 
 export interface ComposerState {
@@ -59,6 +70,8 @@ interface State {
   composer: ComposerState | null;
   /** Reply requested before the thread finished loading. */
   pendingReply: "reply" | "replyAll" | "forward" | null;
+  menu: { x: number; y: number; items: MenuItem[] } | null;
+  previewPane: boolean;
   palette: boolean;
   snoozeFor: string[] | null;
   settingsSection: string | null;
@@ -101,6 +114,8 @@ interface State {
   send: (draft: Draft) => Promise<boolean>;
 
   set: (patch: Partial<State>) => void;
+  openMenu: (x: number, y: number, items: MenuItem[]) => void;
+  togglePreviewPane: () => void;
   toast: (message: string, opts?: Partial<Omit<Toast, "id" | "message">>) => number;
   dismissToast: (id: number) => void;
   pushUndo: (label: string, run: () => Promise<void> | void) => void;
@@ -179,6 +194,12 @@ function removesFrom(view: View, action: ThreadAction): boolean {
   }
 }
 
+/** How to undo an action, given the view it was done from. */
+function inverseOf(action: ThreadAction, view: View): ThreadAction | undefined {
+  if (action === "inbox") return view === "trash" ? "trash" : view === "spam" ? "spam" : "archive";
+  return inverse[action];
+}
+
 const inverse: Partial<Record<ThreadAction, ThreadAction>> = {
   archive: "inbox",
   trash: "inbox",
@@ -224,6 +245,14 @@ export const useStore = create<State>((set, get) => ({
 
   composer: null,
   pendingReply: null,
+  menu: null,
+  previewPane: (() => {
+    try {
+      return localStorage.getItem("cm.previewPane") !== "false";
+    } catch {
+      return true;
+    }
+  })(),
   palette: false,
   snoozeFor: null,
   settingsSection: null,
@@ -235,6 +264,16 @@ export const useStore = create<State>((set, get) => ({
   undoStack: [],
 
   set: (patch) => set(patch),
+  openMenu: (x, y, items) => set({ menu: items.length ? { x, y, items } : null }),
+  togglePreviewPane: () => {
+    const next = !get().previewPane;
+    try {
+      localStorage.setItem("cm.previewPane", String(next));
+    } catch {
+      /* per-device preference only */
+    }
+    set({ previewPane: next });
+  },
 
   init: async () => {
     await get().reloadMeta();
@@ -473,9 +512,11 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     if (opts?.silent) return;
-    const inv = inverse[action];
+    const inv = inverseOf(action, view);
     const n = targets.length;
-    const label = `${actionLabel[action]}${n > 1 ? ` · ${n} conversations` : ""}`;
+    const base =
+      action === "inbox" && view === "trash" ? "Restored from trash" : action === "inbox" && view === "spam" ? "Marked as not spam" : actionLabel[action];
+    const label = `${base}${n > 1 ? ` · ${n} conversations` : ""}`;
     if (inv) {
       get().pushUndo(label, () => {
         clearOverride(targets);

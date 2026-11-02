@@ -9,6 +9,8 @@ import {
   Mail,
   MailOpen,
   Moon,
+  Sun,
+  PanelRight,
   PanelLeft,
   PenSquare,
   RefreshCw,
@@ -28,7 +30,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
-import { useStore } from "../store";
+import { useStore, type MenuItem } from "../store";
 import type { View } from "./types";
 
 export interface Command {
@@ -81,7 +83,7 @@ export function allCommands(): Command[] {
     { id: "done", title: "Mark done", section: "Conversation", keys: ["E"], icon: Archive, run: () => st.act("archive"), enabled: canDone },
     { id: "inbox", title: restoreTitle(), section: "Conversation", keys: canDone() ? ["Shift", "E"] : ["E"], icon: Inbox, run: () => st.act("inbox"), enabled: canRestore },
     { id: "toggleDone", title: "Mark done / move to inbox", section: "Conversation", run: toggleDone, hidden: true },
-    { id: "trash", title: "Move to trash", section: "Conversation", keys: ["#"], icon: Trash2, run: () => st.act("trash"), enabled: () => hasTarget() && s().view !== "trash" },
+    { id: "trash", title: "Move to trash", section: "Conversation", keys: ["⌫"], icon: Trash2, run: () => st.act("trash"), enabled: () => hasTarget() && s().view !== "trash" },
     { id: "spam", title: "Mark as spam", section: "Conversation", keys: ["!"], icon: ShieldAlert, run: () => st.act("spam"), enabled: () => hasTarget() && s().view !== "spam" },
     { id: "unsubscribe", title: "Unsubscribe", section: "Conversation", keys: ["Mod", "U"], icon: MailOpen, run: () => window.dispatchEvent(new CustomEvent("cm:unsubscribe")), enabled: () => !!s().openThreadId },
     { id: "expandAll", title: "Expand / collapse all messages", section: "Conversation", keys: [";"], icon: Mail, run: () => window.dispatchEvent(new CustomEvent("cm:expand-all")), enabled: () => !!s().openThreadId },
@@ -119,7 +121,9 @@ export function allCommands(): Command[] {
     { id: "settings", title: "Settings", section: "App", keys: ["Mod", ","], icon: Settings, run: () => st.set({ settingsSection: "general" }) },
     { id: "accounts", title: "Manage accounts", section: "App", icon: Settings, run: () => st.set({ settingsSection: "accounts" }) },
     { id: "aiSettings", title: "AI settings", section: "App", icon: Sparkles, run: () => st.set({ settingsSection: "ai" }) },
-    { id: "theme", title: "Toggle light / dark", section: "App", icon: Moon, run: toggleTheme },
+    { id: "theme", title: "Toggle app light / dark", section: "App", icon: Moon, run: toggleTheme },
+    { id: "emailTheme", title: "Toggle email light / dark", section: "App", keys: ["Shift", "L"], icon: Sun, run: toggleEmailTheme },
+    { id: "preview", title: st.previewPane ? "Hide preview pane" : "Show preview pane", section: "App", keys: ["P"], icon: PanelRight, run: () => s().togglePreviewPane() },
     { id: "sidebar", title: "Toggle sidebar", section: "App", keys: ["["], icon: PanelLeft, run: () => st.set({ sidebarCollapsed: !s().sidebarCollapsed }) },
     { id: "help", title: "Keyboard shortcuts", section: "App", keys: ["?"], icon: Keyboard, run: () => st.set({ help: true }) },
   ];
@@ -163,6 +167,47 @@ function cycleAccount(dir: 1 | -1) {
   st.setAccountFilter(ids[(i + dir + ids.length) % ids.length]);
 }
 
+/** Right-click menu for a thread row: acts on the selection if the row is part of it. */
+export function openThreadMenu(threadId: string, x: number, y: number) {
+  const st = s();
+  if (!st.selected.has(threadId)) {
+    const idx = st.threads.findIndex((t) => t.id === threadId);
+    st.set({ selected: new Set(), cursor: idx >= 0 ? idx : st.cursor });
+  }
+  const byId = new Map(allCommands().map((c) => [c.id, c]));
+  const pick = (id: string, extra?: Partial<MenuItem>): MenuItem | null => {
+    const c = byId.get(id);
+    if (!c || (c.enabled && !c.enabled())) return null;
+    return { label: c.title, icon: c.icon, keys: c.keys, run: c.run, ...extra };
+  };
+  const multi = s().selected.size > 1;
+  const items = [
+    multi ? null : { label: "Open", icon: MailOpen, keys: ["Enter"], run: () => s().openThread(threadId) },
+    multi ? null : pick("reply"),
+    multi ? null : pick("replyAll"),
+    multi ? null : pick("forward"),
+    pick("done", { separator: !multi }),
+    pick("inbox", { separator: multi }),
+    pick("snooze"),
+    pick("star"),
+    pick("read"),
+    pick("spam", { separator: true }),
+    pick("trash", { danger: true }),
+  ].filter((x): x is MenuItem => !!x);
+  // Only the first remaining item of a group should draw its divider.
+  st.openMenu(x, y, items.map((it, i) => (i === 0 ? { ...it, separator: false } : it)));
+}
+
+export function emailIsDark(): boolean {
+  const st = s();
+  const appDark = document.documentElement.dataset.theme !== "light";
+  return st.settings.email_theme ? st.settings.email_theme === "dark" : appDark;
+}
+
+export function toggleEmailTheme() {
+  s().setSetting("email_theme", emailIsDark() ? "light" : "dark");
+}
+
 export function toggleTheme() {
   const st = s();
   const current = st.settings.theme ?? "system";
@@ -176,7 +221,8 @@ async function replyFromTarget(mode: "reply" | "replyAll" | "forward") {
   const id = st.targets()[0];
   if (!id) return;
   // The thread view knows which message is the latest; let it start the reply.
-  if (st.openThreadId === id) {
+  const previewing = st.previewPane && !st.openThreadId && st.threads[st.cursor]?.id === id;
+  if (st.openThreadId === id || previewing) {
     window.dispatchEvent(new CustomEvent("cm:reply", { detail: mode }));
   } else {
     st.set({ pendingReply: mode });
@@ -191,8 +237,11 @@ const bindings: Record<string, string> = {
   "Shift+e": "inbox",
   "#": "trash",
   Delete: "trash",
+  Backspace: "trash",
   "Mod+Backspace": "trash",
   "!": "spam",
+  "Shift+l": "emailTheme",
+  p: "preview",
   "Mod+u": "unsubscribe",
   ";": "expandAll",
   "]": "nextAccount",

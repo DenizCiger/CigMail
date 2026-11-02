@@ -14,6 +14,7 @@ import { SnoozePicker } from "./components/SnoozePicker";
 import { Settings } from "./components/Settings";
 import { HelpOverlay } from "./components/HelpOverlay";
 import { Toasts } from "./components/Toasts";
+import { ContextMenu } from "./components/ContextMenu";
 import { Onboarding } from "./components/Onboarding";
 import { ReconnectBanner } from "./components/ReconnectBanner";
 import { IconButton } from "./components/ui";
@@ -83,6 +84,8 @@ export default function App() {
   const openThreadId = useStore((s) => s.openThreadId);
   const composer = useStore((s) => s.composer);
   const view = useStore((s) => s.view);
+  const previewPane = useStore((s) => s.previewPane);
+  const previewId = useStore((s) => s.threads[s.cursor]?.id ?? null);
   useTheme();
 
   useEffect(() => {
@@ -97,7 +100,15 @@ export default function App() {
   if (!ready) return <div className="h-full bg-bg" />;
 
   return (
-    <div className="flex h-full bg-bg text-fg">
+    <div
+      className="flex h-full bg-bg text-fg"
+      onContextMenu={(e) => {
+        // Native menu only where it's useful: text fields and selected text.
+        const t = e.target as HTMLElement;
+        if (t.closest("input, textarea, [contenteditable='true']") || window.getSelection()?.toString()) return;
+        e.preventDefault();
+      }}
+    >
       <Sidebar />
       <main className="my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.1)] first:ml-2">
         <ReconnectBanner />
@@ -109,9 +120,24 @@ export default function App() {
           <>
             <Header />
             {view === "drafts" && <LocalDrafts />}
-            <div className="min-h-0 flex-1">
-              <ThreadList />
-            </div>
+            {previewPane ? (
+              <div className="flex min-h-0 flex-1">
+                <div className="min-h-0 w-[38%] min-w-[340px] max-w-[520px] shrink-0 border-r border-line">
+                  <ThreadList compact />
+                </div>
+                <div className="min-w-0 flex-1">
+                  {previewId ? (
+                    <ThreadView key={previewId} id={previewId} preview />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-[13px] text-fg-4">No conversation selected</div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1">
+                <ThreadList />
+              </div>
+            )}
           </>
         )}
       </main>
@@ -121,6 +147,7 @@ export default function App() {
       <Settings />
       <HelpOverlay />
       <Toasts />
+      <ContextMenu />
     </div>
   );
 }
