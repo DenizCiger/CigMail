@@ -5,6 +5,7 @@ import { writeText } from "../lib/clipboard";
 import { ExternalLink, Copy, ImageOff, Mail } from "lucide-react";
 import { useStore } from "../store";
 import { parseAddresses } from "../lib/format";
+import { Kbd } from "./ui";
 
 /**
  * Renders an email inside a shadow root. The HTML is sanitized (no scripts,
@@ -93,6 +94,13 @@ export function EmailFrame({ html, text, sender }: { html: string | null; text: 
   const [allowOnce, setAllowOnce] = useState(false);
   const host = useRef<HTMLDivElement>(null);
 
+  // "I" loads remote images in every email currently shown.
+  useEffect(() => {
+    const load = () => setAllowOnce(true);
+    window.addEventListener("cm:load-images", load);
+    return () => window.removeEventListener("cm:load-images", load);
+  }, []);
+
   const trusted: string[] = useMemo(() => {
     try {
       return JSON.parse(settings.image_senders ?? "[]");
@@ -138,15 +146,15 @@ export function EmailFrame({ html, text, sender }: { html: string | null; text: 
         <div className="mb-3 flex items-center gap-2 rounded-md border border-line bg-hover px-3 py-1.5 text-xs text-fg-3">
           <ImageOff size={13} />
           <span className="flex-1">Remote images are blocked to protect your privacy.</span>
-          <button className="text-fg-2 hover:text-fg" onClick={() => setAllowOnce(true)}>
-            Load once
+          <button className="flex items-center gap-1.5 text-fg-2 hover:text-fg" onClick={() => setAllowOnce(true)}>
+            Load once <Kbd keys={["I"]} />
           </button>
           <span className="text-fg-4">·</span>
           <button
-            className="text-fg-2 hover:text-fg"
+            className="flex items-center gap-1.5 text-fg-2 hover:text-fg"
             onClick={() => setSetting("image_senders", JSON.stringify([...trusted, sender.toLowerCase()]))}
           >
-            Always from this sender
+            Always from this sender <Kbd keys={["Shift", "I"]} />
           </button>
         </div>
       )}

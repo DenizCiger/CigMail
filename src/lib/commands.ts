@@ -10,6 +10,8 @@ import {
   MailOpen,
   Moon,
   Sun,
+  Download,
+  Image,
   PanelRight,
   PanelLeft,
   PenSquare,
@@ -47,6 +49,12 @@ export interface Command {
 
 const s = () => useStore.getState();
 const hasTarget = () => s().targets().length > 0;
+
+/** True while a conversation is visible, full-screen or in the preview pane. */
+const threadInView = () => {
+  const st = s();
+  return !!st.openThreadId || (st.previewPane && !!st.threads[st.cursor]);
+};
 
 /** The thread rows an action would apply to. */
 function targetThreads() {
@@ -86,6 +94,9 @@ export function allCommands(): Command[] {
     { id: "trash", title: "Move to trash", section: "Conversation", keys: ["⌫"], icon: Trash2, run: () => st.act("trash"), enabled: () => hasTarget() && s().view !== "trash" },
     { id: "spam", title: "Mark as spam", section: "Conversation", keys: ["!"], icon: ShieldAlert, run: () => st.act("spam"), enabled: () => hasTarget() && s().view !== "spam" },
     { id: "unsubscribe", title: "Unsubscribe", section: "Conversation", keys: ["Mod", "U"], icon: MailOpen, run: () => window.dispatchEvent(new CustomEvent("cm:unsubscribe")), enabled: () => !!s().openThreadId },
+    { id: "downloadAll", title: "Save all attachments", section: "Conversation", keys: ["Shift", "D"], icon: Download, run: () => window.dispatchEvent(new CustomEvent("cm:download-all")), enabled: threadInView },
+    { id: "loadImages", title: "Load images (this time)", section: "Conversation", keys: ["I"], icon: Image, run: () => window.dispatchEvent(new CustomEvent("cm:load-images")), enabled: threadInView },
+    { id: "trustImages", title: "Always load images from these senders", section: "Conversation", keys: ["Shift", "I"], icon: Image, run: () => window.dispatchEvent(new CustomEvent("cm:trust-images")), enabled: threadInView },
     { id: "expandAll", title: "Expand / collapse all messages", section: "Conversation", keys: [";"], icon: Mail, run: () => window.dispatchEvent(new CustomEvent("cm:expand-all")), enabled: () => !!s().openThreadId },
     { id: "star", title: "Star / unstar", section: "Conversation", keys: ["S"], icon: Star, run: () => st.toggleStar(), enabled: hasTarget },
     { id: "read", title: "Mark read / unread", section: "Conversation", keys: ["U"], icon: MailOpen, run: () => st.toggleRead(), enabled: hasTarget },
@@ -256,6 +267,9 @@ const bindings: Record<string, string> = {
   "Mod+Backspace": "trash",
   "!": "spam",
   "Shift+l": "emailTheme",
+  "Shift+d": "downloadAll",
+  i: "loadImages",
+  "Shift+i": "trustImages",
   p: "preview",
   "Mod+u": "unsubscribe",
   ";": "expandAll",

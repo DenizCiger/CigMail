@@ -50,6 +50,7 @@ export const api = {
   listDrafts: () => invoke<Draft[]>("list_drafts"),
   deleteDraft: (id: string) => invoke<void>("delete_draft", { id }),
   suggestContacts: (query: string) => invoke<Contact[]>("suggest_contacts", { query }),
+  saveAttachments: (messageIds: string[]) => invoke<string[]>("save_attachments", { messageIds }),
   openAttachment: (messageId: string, index: number, save: boolean) =>
     invoke<string>("open_attachment", { messageId, index, save }),
 

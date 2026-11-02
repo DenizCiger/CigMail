@@ -427,6 +427,53 @@ pub fn suggest_contacts(state: State<'_, AppState>, query: String) -> CmdResult<
 
 /// Downloads an attachment (re-fetching the raw message) and either opens it
 /// or saves it to the Downloads folder. Returns the file path.
+fn safe_file_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c })
+        .collect()
+}
+
+/// `dir/name`, or `dir/name (1).ext` etc. if that file already exists.
+fn unique_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let safe = safe_file_name(name);
+    let (stem, ext) = match safe.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (safe.clone(), String::new()),
+    };
+    let mut path = dir.join(&safe);
+    let mut n = 1;
+    while path.exists() {
+        path = dir.join(format!("{stem} ({n}){ext}"));
+        n += 1;
+    }
+    path
+}
+
+/// Saves every (non-inline) attachment of the given messages to Downloads,
+/// downloading each raw message only once. Returns the saved paths.
+#[tauri::command]
+pub async fn save_attachments(app: AppHandle, state: State<'_, AppState>, message_ids: Vec<String>) -> CmdResult<Vec<String>> {
+    let dir = app.path().download_dir().map_err(|e| anyhow!("{e}"))?;
+    let mut saved = Vec::new();
+    for id in message_ids {
+        let msg = state.db.message(&id)?;
+        let indices: Vec<usize> = msg.attachments.iter().filter(|a| !a.inline).map(|a| a.index).collect();
+        if indices.is_empty() {
+            continue;
+        }
+        let (account_id, r) = state.db.message_locator(&id)?;
+        let ctx = state.engine.ctx(&account_id)?;
+        let raw = Provider::new(&ctx)?.fetch_raw(&ctx, &r).await?;
+        for index in indices {
+            let (name, _mime, bytes) = mime::extract_attachment(&raw, index)?;
+            let path = unique_path(&dir, &name);
+            std::fs::write(&path, bytes)?;
+            saved.push(path.to_string_lossy().to_string());
+        }
+    }
+    Ok(saved)
+}
+
 #[tauri::command]
 pub async fn open_attachment(
     app: AppHandle,
@@ -440,29 +487,13 @@ pub async fn open_attachment(
     let mut provider = Provider::new(&ctx)?;
     let raw = provider.fetch_raw(&ctx, &r).await?;
     let (name, _mime, bytes) = mime::extract_attachment(&raw, index)?;
-    let safe: String = name
-        .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c })
-        .collect();
-    let dir = if save {
-        app.path().download_dir().map_err(|e| anyhow!("{e}"))?
+    let path = if save {
+        unique_path(&app.path().download_dir().map_err(|e| anyhow!("{e}"))?, &name)
     } else {
         let d = std::env::temp_dir().join("cigmail");
         std::fs::create_dir_all(&d)?;
-        d
+        d.join(safe_file_name(&name))
     };
-    let mut path = dir.join(&safe);
-    if save {
-        let (stem, ext) = match safe.rsplit_once('.') {
-            Some((s, e)) => (s.to_string(), format!(".{e}")),
-            None => (safe.clone(), String::new()),
-        };
-        let mut n = 1;
-        while path.exists() {
-            path = dir.join(format!("{stem} ({n}){ext}"));
-            n += 1;
-        }
-    }
     std::fs::write(&path, bytes)?;
     let p = path.to_string_lossy().to_string();
     if !save {

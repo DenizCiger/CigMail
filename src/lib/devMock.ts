@@ -86,7 +86,10 @@ function messagesFor(t: ThreadSummary): Message[] {
       isStarred: false,
       isDraft: false,
       inSent: mine,
-      attachments: t.hasAttachments && i === n - 1 ? [{ index: 0, filename: "slides-draft-v2.pdf", mime: "application/pdf", size: 2_400_000, inline: false, contentId: null }] : [],
+      attachments: t.hasAttachments && i === n - 1 ? [
+              { index: 0, filename: "slides-draft-v2.pdf", mime: "application/pdf", size: 2_400_000, inline: false, contentId: null },
+              { index: 1, filename: "architecture.png", mime: "image/png", size: 310_000, inline: false, contentId: null },
+            ] : [],
       listUnsubscribe: t.category === "newsletter" ? "<https://example.com/unsubscribe>" : null,
     };
   });
@@ -188,6 +191,8 @@ export function installDevMock() {
         case "list_drafts":
         case "failed_sends":
           return [];
+        case "save_attachments":
+          return (args.messageIds as string[]).flatMap((_: string, i: number) => [`/home/you/Downloads/file-${i + 1}.pdf`]);
         case "save_draft":
           return "d1";
         default:

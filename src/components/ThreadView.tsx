@@ -24,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useStore } from "../store";
 import { aiStream, api, errorMessage } from "../lib/api";
 import { displayName, formatBytes, longDate, shortDate } from "../lib/format";
@@ -45,16 +45,38 @@ function Recipients({ m, me }: { m: Message; me: string[] }) {
   );
 }
 
+/** Saves all attachments of these messages to Downloads, with a toast to reveal them. */
+async function saveAll(messageIds: string[]) {
+  const { toast, dismissToast } = useStore.getState();
+  const progress = toast("Saving attachments…", { duration: 0 });
+  try {
+    const paths = await api.saveAttachments(messageIds);
+    dismissToast(progress);
+    if (!paths.length) {
+      toast("No attachments in this conversation");
+      return;
+    }
+    toast(paths.length === 1 ? `Saved ${paths[0].split(/[\\/]/).pop()} to Downloads` : `Saved ${paths.length} files to Downloads`, {
+      kind: "success",
+      action: { label: "Show", run: () => revealItemInDir(paths[0]).catch(() => {}) },
+    });
+  } catch (e) {
+    dismissToast(progress);
+    toast(errorMessage(e), { kind: "error" });
+  }
+}
+
 function Attachments({ m }: { m: Message }) {
   const toast = useStore((s) => s.toast);
   const [busy, setBusy] = useState<number | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const files = m.attachments.filter((a) => !a.inline);
   if (!files.length) return null;
   const run = async (index: number, save: boolean) => {
     setBusy(index);
     try {
       const path = await api.openAttachment(m.id, index, save);
-      if (save) toast(`Saved to ${path}`, { kind: "success" });
+      if (save) toast(`Saved to ${path}`, { kind: "success", action: { label: "Show", run: () => revealItemInDir(path).catch(() => {}) } });
     } catch (e) {
       toast(errorMessage(e), { kind: "error" });
     } finally {
@@ -82,6 +104,22 @@ function Attachments({ m }: { m: Message }) {
           )}
         </div>
       ))}
+      {files.length > 1 && (
+        <button
+          onClick={async () => {
+            setSavingAll(true);
+            await saveAll([m.id]);
+            setSavingAll(false);
+          }}
+          disabled={savingAll}
+          title="Save all attachments to Downloads  ·  Shift+D"
+          className="flex h-10 items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 text-xs text-fg-2 hover:border-fg-4 hover:text-fg"
+        >
+          {savingAll ? <Spinner size={13} /> : <Download size={13} />}
+          Save all {files.length}
+          <Kbd keys={["Shift", "D"]} />
+        </button>
+      )}
     </div>
   );
 }
@@ -375,11 +413,37 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
       setExpanded((cur) =>
         detail && cur.size < detail.messages.length ? new Set(detail.messages.map((m) => m.id)) : new Set(latest ? [latest.id] : []),
       );
+    const downloadAll = () => {
+      const ids = (detail?.messages ?? []).filter((m) => m.attachments.some((a) => !a.inline)).map((m) => m.id);
+      if (ids.length) saveAll(ids);
+      else useStore.getState().toast("No attachments in this conversation");
+    };
+    const trustImages = () => {
+      const st = useStore.getState();
+      let trusted: string[] = [];
+      try {
+        trusted = JSON.parse(st.settings.image_senders ?? "[]");
+      } catch {
+        /* start fresh */
+      }
+      const senders = [...new Set((detail?.messages ?? []).filter((m) => m.bodyHtml && !m.inSent).map((m) => m.from.email.toLowerCase()))];
+      const added = senders.filter((x) => !trusted.includes(x));
+      if (!added.length) {
+        st.toast("Images from these senders already load automatically");
+        return;
+      }
+      st.setSetting("image_senders", JSON.stringify([...trusted, ...added]));
+      st.toast(`Images from ${added.join(", ")} will always load`, { kind: "success" });
+    };
     window.addEventListener("cm:unsubscribe", unsubscribe);
     window.addEventListener("cm:expand-all", expandAll);
+    window.addEventListener("cm:download-all", downloadAll);
+    window.addEventListener("cm:trust-images", trustImages);
     return () => {
       window.removeEventListener("cm:unsubscribe", unsubscribe);
       window.removeEventListener("cm:expand-all", expandAll);
+      window.removeEventListener("cm:download-all", downloadAll);
+      window.removeEventListener("cm:trust-images", trustImages);
     };
   }, [detail, latest]);
 
