@@ -48,18 +48,25 @@ function Row({
 
   const date =
     view === "snoozed" && t.snoozedUntil ? (
-      <span className="flex items-center gap-1 whitespace-nowrap text-xs text-warning">
+      <span className="flex items-center gap-1 whitespace-nowrap text-xs text-warning group-hover:invisible">
         <Clock size={12} />
         {relativeFuture(t.snoozedUntil)}
       </span>
     ) : (
-      <span className={clsx("min-w-[52px] whitespace-nowrap text-right text-xs tabular-nums group-hover:hidden", t.unread && "text-fg-2")}>
+      <span className={clsx("min-w-[52px] whitespace-nowrap text-right text-xs tabular-nums group-hover:invisible", t.unread && "text-fg-2")}>
         {shortDate(t.lastDate)}
       </span>
     );
 
   const hoverActions = (
-    <span className="hidden items-center gap-0.5 group-hover:flex" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+    <span
+      className={clsx(
+        "absolute right-2 hidden items-center gap-0.5 rounded-md border border-line bg-elev p-0.5 shadow-sm group-hover:flex",
+        compact ? "top-1.5" : "top-1/2 -translate-y-1/2",
+      )}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       {restorable ? (
         <HoverAction label="Move to inbox (E)" onClick={() => act("inbox", [t.id])}>
           <Inbox size={14} />
