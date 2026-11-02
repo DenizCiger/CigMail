@@ -30,9 +30,9 @@ const NAV: { view: View; label: string; icon: LucideIcon; keys: string[] }[] = [
   { view: "drafts", label: "Drafts", icon: FileText, keys: ["G", "D"] },
 ];
 
-const MORE: { view: View; label: string; icon: LucideIcon }[] = [
-  { view: "spam", label: "Spam", icon: ShieldAlert },
-  { view: "trash", label: "Trash", icon: Trash2 },
+const MORE: { view: View; label: string; icon: LucideIcon; keys: string[] }[] = [
+  { view: "spam", label: "Spam", icon: ShieldAlert, keys: ["G", "!"] },
+  { view: "trash", label: "Trash", icon: Trash2, keys: ["G", "X"] },
 ];
 
 function NavItem({
@@ -122,7 +122,7 @@ export function Sidebar() {
           />
         ))}
         {MORE.map((n) => (
-          <NavItem key={n.view} icon={n.icon} label={n.label} active={view === n.view} onClick={() => setView(n.view)} />
+          <NavItem key={n.view} icon={n.icon} label={n.label} active={view === n.view} onClick={() => setView(n.view)} title={`${n.label} · ${n.keys.join(" then ")}`} />
         ))}
       </nav>
 
@@ -141,19 +141,20 @@ export function Sidebar() {
           <NavItem
             icon={Layers}
             label="All accounts"
+            title="Unified inbox  ·  G then 0  ·  ] / Shift+] to cycle"
             active={accountFilter === null}
             count={counts["inbox"]}
             onClick={() => setAccountFilter(null)}
           />
         )}
-        {accounts.map((a) => {
+        {accounts.map((a, i) => {
           const st = sync[a.id];
           const err = st?.state === "error" || st?.state === "auth" || (!st && a.lastError);
           return (
             <NavItem
               key={a.id}
               label={accountLabel(a)}
-              title={`${a.email}${err ? `\n${st?.message ?? a.lastError}` : ""}`}
+              title={`${a.email}${i < 9 ? `  ·  G then ${i + 1}` : ""}${err ? `\n${st?.message ?? a.lastError}` : ""}`}
               active={accountFilter === a.id}
               count={counts[`inbox:${a.id}`]}
               onClick={() => setAccountFilter(accountFilter === a.id ? null : a.id)}

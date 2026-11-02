@@ -232,6 +232,7 @@ pub enum ThreadAction {
     Unread,
     Star,
     Unstar,
+    Spam,
 }
 
 pub fn local_id(account_id: &str, remote_id: &str) -> String {
@@ -568,10 +569,15 @@ impl Db {
     ) -> Result<bool> {
         let id = local_id(account_id, remote_id);
         self.tx(|c| {
-            let thread: Option<String> = c
-                .query_row("SELECT thread_id FROM messages WHERE id = ?", [&id], |r| r.get(0))
+            let row: Option<(String, bool)> = c
+                .query_row("SELECT thread_id, in_inbox FROM messages WHERE id = ?", [&id], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
                 .optional()?;
-            let Some(thread) = thread else { return Ok(false) };
+            let Some((thread, was_inbox)) = row else { return Ok(false) };
+            if flags.inbox && !was_inbox {
+                tracing::info!("server moved {id} back into the inbox");
+            }
             c.execute(
                 "UPDATE messages SET is_read = ?2, is_starred = ?3, in_inbox = ?4, in_sent = ?5,
                     in_drafts = ?6, in_trash = ?7, in_spam = ?8,
@@ -775,6 +781,7 @@ impl Db {
                         "is_starred = 1",
                     ),
                     ThreadAction::Unstar => ("is_starred = 1", "is_starred = 0"),
+                    ThreadAction::Spam => ("in_spam = 0 AND in_sent = 0 AND in_drafts = 0", "in_spam = 1, in_inbox = 0"),
                 };
                 let mut st = c.prepare(&format!(
                     "SELECT id, account_id FROM messages WHERE thread_id = ?1 AND {cond}"
@@ -792,10 +799,18 @@ impl Db {
                 for (id, acc) in rows {
                     by_account.entry(acc).or_default().push(id);
                 }
-                if matches!(action, ThreadAction::Archive | ThreadAction::Trash | ThreadAction::Inbox) {
+                if matches!(action, ThreadAction::Archive | ThreadAction::Trash | ThreadAction::Inbox | ThreadAction::Spam) {
                     c.execute("UPDATE thread_meta SET bumped_at = NULL WHERE thread_id = ?", [tid])?;
                 }
                 recompute_thread(c, tid)?;
+            }
+            // Queue the remote change in the same transaction, so a sync can
+            // never see the local change without its pending op.
+            for (acc, ids) in &by_account {
+                c.execute(
+                    "INSERT INTO ops(account_id, payload, created_at) VALUES (?1, ?2, ?3)",
+                    params![acc, serde_json::json!({ "action": action, "ids": ids }).to_string(), now()],
+                )?;
             }
             Ok(by_account.into_iter().collect())
         })
@@ -884,6 +899,7 @@ impl Db {
 
     // ---------------------------------------------------------------- ops queue
 
+    #[cfg(test)]
     pub fn push_op<T: Serialize>(&self, account_id: &str, op: &T) -> Result<()> {
         self.with(|c| {
             c.execute(
@@ -1106,7 +1122,7 @@ impl ThreadFilter {
         let mut vals: Vec<Value> = Vec::new();
         let not_snoozed = format!("(tm.snoozed_until IS NULL OR tm.snoozed_until <= {now})");
         match self.view.as_str() {
-            "inbox" => conds.push(format!("t.in_inbox = 1 AND t.in_trash = 0 AND {not_snoozed}")),
+            "inbox" => conds.push(format!("t.in_inbox = 1 AND t.in_trash = 0 AND t.in_spam = 0 AND {not_snoozed}")),
             "starred" => conds.push("t.starred = 1 AND t.in_trash = 0".into()),
             "sent" => conds.push("t.in_sent = 1 AND t.in_trash = 0".into()),
             "drafts" => conds.push("t.in_drafts = 1 AND t.in_trash = 0".into()),
@@ -1157,7 +1173,7 @@ fn thread_from_row(r: &Row) -> rusqlite::Result<ThreadSummary> {
         id: r.get("id")?,
         account_id: r.get("account_id")?,
         subject: r.get("subject")?,
-        snippet: r.get("snippet")?,
+        snippet: crate::mime::clean_snippet(&r.get::<_, String>("snippet")?),
         last_date: r.get("last_date")?,
         participants: from_json(&r.get::<_, String>("participants")?),
         message_count: r.get("message_count")?,
@@ -1185,7 +1201,7 @@ fn message_from_row(r: &Row) -> rusqlite::Result<Message> {
         bcc: from_json(&r.get::<_, String>("bcc_json")?),
         reply_to: from_json(&r.get::<_, String>("reply_to_json")?),
         date: r.get("date")?,
-        snippet: r.get("snippet")?,
+        snippet: crate::mime::clean_snippet(&r.get::<_, String>("snippet")?),
         body_html: r.get("body_html")?,
         body_text: r.get("body_text")?,
         is_read: r.get("is_read")?,

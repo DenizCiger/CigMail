@@ -52,13 +52,13 @@ function Row({
       className={clsx(
         "group relative flex h-full items-center gap-3 pl-4 pr-3 text-[13px]",
         active ? "bg-hover" : "",
-        selected && "bg-accent-soft",
+        selected && "bg-active",
       )}
     >
-      {active && <span className="absolute inset-y-1 left-0 w-[2px] rounded-full bg-accent" />}
+      {active && <span className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-fg-4" />}
       <span className="flex w-2 shrink-0 justify-center">
         {selected ? (
-          <span className="h-2 w-2 rounded-[3px] bg-accent" />
+          <span className="h-2 w-2 rounded-[3px] bg-fg-2" />
         ) : t.unread ? (
           <span className="h-[7px] w-[7px] rounded-full bg-accent" />
         ) : null}
@@ -80,7 +80,7 @@ function Row({
           {t.subject || "(no subject)"}
         </span>
         <span className="flex min-w-0 items-center gap-1 truncate text-fg-3">
-          {showAi && t.aiSummary && <Sparkles size={11} className="shrink-0 text-accent opacity-80" />}
+          {showAi && t.aiSummary && <Sparkles size={11} className="shrink-0 text-fg-4" />}
           <span className="truncate">{preview}</span>
         </span>
       </span>
@@ -140,7 +140,7 @@ function Empty() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 animate-fade">
         <div className="relative h-20 w-20">
-          <div className="absolute inset-0 rounded-full bg-gradient-to-br from-accent/40 to-transparent blur-xl" />
+          <div className="absolute inset-0 rounded-full bg-gradient-to-br from-fg-4/30 to-transparent blur-xl" />
           <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-line-strong bg-elev">
             <Archive size={26} className="text-fg-2" strokeWidth={1.5} />
           </div>

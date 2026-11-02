@@ -39,10 +39,35 @@ export interface Command {
   icon?: LucideIcon;
   run: () => void;
   enabled?: () => boolean;
+  /** Reachable by hotkey only; not listed in the palette or help. */
+  hidden?: boolean;
 }
 
 const s = () => useStore.getState();
 const hasTarget = () => s().targets().length > 0;
+
+/** The thread rows an action would apply to. */
+function targetThreads() {
+  const st = s();
+  const ids = st.targets();
+  return st.threads.filter((t) => ids.includes(t.id));
+}
+const inTrashOrSpam = () => s().view === "trash" || s().view === "spam";
+/** "Mark done" only makes sense for threads that are still in the inbox. */
+const canDone = () => !inTrashOrSpam() && targetThreads().some((t) => t.inInbox);
+const canRestore = () => hasTarget() && (inTrashOrSpam() || targetThreads().some((t) => !t.inInbox));
+
+/** E toggles: done when in the inbox, back to the inbox otherwise (like Superhuman). */
+function toggleDone() {
+  const st = s();
+  if (canDone()) st.act("archive");
+  else if (canRestore()) st.act("inbox");
+}
+
+function restoreTitle() {
+  const v = s().view;
+  return v === "trash" ? "Restore from trash" : v === "spam" ? "Not spam" : "Move to inbox";
+}
 
 function go(view: View) {
   return () => s().setView(view);
@@ -53,12 +78,16 @@ export function allCommands(): Command[] {
   const st = s();
   const cmds: Command[] = [
     // Conversation
-    { id: "done", title: "Mark done", section: "Conversation", keys: ["E"], icon: Archive, run: () => st.act("archive"), enabled: hasTarget },
-    { id: "inbox", title: "Move to inbox", section: "Conversation", keys: ["Shift", "E"], icon: Inbox, run: () => st.act("inbox"), enabled: hasTarget },
-    { id: "trash", title: "Trash", section: "Conversation", keys: ["#"], icon: Trash2, run: () => st.act("trash"), enabled: hasTarget },
+    { id: "done", title: "Mark done", section: "Conversation", keys: ["E"], icon: Archive, run: () => st.act("archive"), enabled: canDone },
+    { id: "inbox", title: restoreTitle(), section: "Conversation", keys: canDone() ? ["Shift", "E"] : ["E"], icon: Inbox, run: () => st.act("inbox"), enabled: canRestore },
+    { id: "toggleDone", title: "Mark done / move to inbox", section: "Conversation", run: toggleDone, hidden: true },
+    { id: "trash", title: "Move to trash", section: "Conversation", keys: ["#"], icon: Trash2, run: () => st.act("trash"), enabled: () => hasTarget() && s().view !== "trash" },
+    { id: "spam", title: "Mark as spam", section: "Conversation", keys: ["!"], icon: ShieldAlert, run: () => st.act("spam"), enabled: () => hasTarget() && s().view !== "spam" },
+    { id: "unsubscribe", title: "Unsubscribe", section: "Conversation", keys: ["Mod", "U"], icon: MailOpen, run: () => window.dispatchEvent(new CustomEvent("cm:unsubscribe")), enabled: () => !!s().openThreadId },
+    { id: "expandAll", title: "Expand / collapse all messages", section: "Conversation", keys: [";"], icon: Mail, run: () => window.dispatchEvent(new CustomEvent("cm:expand-all")), enabled: () => !!s().openThreadId },
     { id: "star", title: "Star / unstar", section: "Conversation", keys: ["S"], icon: Star, run: () => st.toggleStar(), enabled: hasTarget },
     { id: "read", title: "Mark read / unread", section: "Conversation", keys: ["U"], icon: MailOpen, run: () => st.toggleRead(), enabled: hasTarget },
-    { id: "snooze", title: "Snooze…", section: "Conversation", keys: ["H"], icon: Clock, run: () => st.set({ snoozeFor: st.targets() }), enabled: hasTarget },
+    { id: "snooze", title: "Snooze…", section: "Conversation", keys: ["H"], icon: Clock, run: () => st.set({ snoozeFor: st.targets() }), enabled: () => hasTarget() && !inTrashOrSpam() },
     { id: "reply", title: "Reply", section: "Conversation", keys: ["R"], icon: Reply, run: () => replyFromTarget("reply"), enabled: hasTarget },
     { id: "replyAll", title: "Reply all", section: "Conversation", keys: ["A"], icon: ReplyAll, run: () => replyFromTarget("replyAll"), enabled: hasTarget },
     { id: "forward", title: "Forward", section: "Conversation", keys: ["F"], icon: Forward, run: () => replyFromTarget("forward"), enabled: hasTarget },
@@ -74,8 +103,8 @@ export function allCommands(): Command[] {
     { id: "goDone", title: "Go to Done", section: "Navigation", keys: ["G", "E"], icon: Archive, run: go("done") },
     { id: "goSent", title: "Go to Sent", section: "Navigation", keys: ["G", "T"], icon: Send, run: go("sent") },
     { id: "goDrafts", title: "Go to Drafts", section: "Navigation", keys: ["G", "D"], icon: FileText, run: go("drafts") },
-    { id: "goTrash", title: "Go to Trash", section: "Navigation", keys: ["G", "#"], icon: Trash2, run: go("trash") },
-    { id: "goSpam", title: "Go to Spam", section: "Navigation", icon: ShieldAlert, run: go("spam") },
+    { id: "goTrash", title: "Go to Trash", section: "Navigation", keys: ["G", "X"], icon: Trash2, run: go("trash") },
+    { id: "goSpam", title: "Go to Spam", section: "Navigation", keys: ["G", "!"], icon: ShieldAlert, run: go("spam") },
     { id: "search", title: "Search mail", section: "Navigation", keys: ["/"], icon: Search, run: () => st.openSearch() },
     { id: "nextSplit", title: "Next split", section: "Navigation", keys: ["Tab"], icon: Mail, run: () => st.cycleSplit(1) },
     { id: "prevSplit", title: "Previous split", section: "Navigation", keys: ["Shift", "Tab"], icon: Mail, run: () => st.cycleSplit(-1) },
@@ -95,19 +124,43 @@ export function allCommands(): Command[] {
     { id: "help", title: "Keyboard shortcuts", section: "App", keys: ["?"], icon: Keyboard, run: () => st.set({ help: true }) },
   ];
 
-  for (const a of st.accounts) {
+  cmds.push({
+    id: "account:all",
+    title: "All accounts (unified inbox)",
+    section: "Accounts",
+    keys: ["G", "0"],
+    icon: Mail,
+    run: () => st.setAccountFilter(null),
+    enabled: () => !!s().accountFilter,
+  });
+  st.accounts.forEach((a, i) => {
     cmds.push({
-      id: `account:${a.id}`,
+      id: `account:${i + 1}`,
       title: `Show only ${a.label ? `${a.label} (${a.email})` : a.email}`,
       section: "Accounts",
+      keys: i < 9 ? ["G", String(i + 1)] : undefined,
       icon: Mail,
       run: () => st.setAccountFilter(a.id),
     });
+  });
+  if (st.accounts.length > 1) {
+    cmds.push({ id: "nextAccount", title: "Next account", section: "Accounts", keys: ["]"], icon: Mail, run: () => cycleAccount(1) });
+    cmds.push({ id: "prevAccount", title: "Previous account", section: "Accounts", keys: ["Shift", "]"], icon: Mail, run: () => cycleAccount(-1) });
   }
-  if (st.accountFilter) {
-    cmds.push({ id: "account:all", title: "Show all accounts", section: "Accounts", icon: Mail, run: () => st.setAccountFilter(null) });
-  }
+  st.splits.forEach((sp, i) => {
+    if (i < 9) {
+      cmds.push({ id: `split:${i + 1}`, title: `Show split: ${sp.name}`, section: "Navigation", keys: [String(i + 1)], icon: Inbox, run: () => st.setSplit(sp.id) });
+    }
+  });
   return cmds;
+}
+
+/** Cycles All accounts → account 1 → account 2 … */
+function cycleAccount(dir: 1 | -1) {
+  const st = s();
+  const ids: (string | null)[] = [null, ...st.accounts.map((a) => a.id)];
+  const i = ids.indexOf(st.accountFilter);
+  st.setAccountFilter(ids[(i + dir + ids.length) % ids.length]);
 }
 
 export function toggleTheme() {
@@ -134,10 +187,20 @@ async function replyFromTarget(mode: "reply" | "replyAll" | "forward") {
 // ------------------------------------------------------------------ hotkeys
 
 const bindings: Record<string, string> = {
-  e: "done",
+  e: "toggleDone",
   "Shift+e": "inbox",
   "#": "trash",
   Delete: "trash",
+  "Mod+Backspace": "trash",
+  "!": "spam",
+  "Mod+u": "unsubscribe",
+  ";": "expandAll",
+  "]": "nextAccount",
+  "}": "prevAccount",
+  "Shift+]": "prevAccount",
+  "g 0": "account:all",
+  "g !": "goSpam",
+  "g x": "goTrash",
   s: "star",
   u: "read",
   h: "snooze",
@@ -165,12 +228,19 @@ const bindings: Record<string, string> = {
   "g d": "goDrafts",
   "g #": "goTrash",
 };
+for (let i = 1; i <= 9; i++) {
+  bindings[String(i)] = `split:${i}`;
+  bindings[`g ${i}`] = `account:${i}`;
+}
+
+const MODIFIERS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "OS", "CapsLock", "Hyper", "Super"]);
 
 function normalize(e: KeyboardEvent): string {
   const parts: string[] = [];
   if (e.ctrlKey || e.metaKey) parts.push("Mod");
   if (e.altKey) parts.push("Alt");
-  let key = e.key;
+  // WebKitGTK reports Shift+Tab as "ISO_Left_Tab"/"Unidentified" on some setups.
+  let key = e.code === "Tab" ? "Tab" : e.key;
   // Symbols already encode Shift ("#", "?"); letters don't.
   const isLetter = key.length === 1 && /[a-z]/i.test(key);
   if (e.shiftKey && (isLetter || key.length > 1)) parts.push("Shift");
@@ -191,6 +261,8 @@ export function handleGlobalKey(e: KeyboardEvent) {
   const st = s();
   const overlayOpen = st.palette || st.snoozeFor || st.settingsSection || st.help;
   if (e.defaultPrevented) return;
+  // A bare Shift press must not end a "g" sequence (e.g. "g" then Shift+3 for "#").
+  if (MODIFIERS.has(e.key)) return;
 
   const combo = normalize(e);
 

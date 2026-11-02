@@ -252,7 +252,7 @@ function AccountCard({ a }: { a: Account }) {
               value={signature}
               onChange={(e) => setSignature(e.target.value)}
               rows={3}
-              className="rounded-md border border-line-strong bg-input px-2.5 py-2 text-[13px] focus:border-accent"
+              className="rounded-md border border-line-strong bg-input px-2.5 py-2 text-[13px] focus:border-fg-4"
             />
           </Field>
           {error && a.kind === "imap" && (

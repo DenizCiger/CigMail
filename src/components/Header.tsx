@@ -29,7 +29,7 @@ function SearchBox() {
   useEffect(() => ref.current?.focus(), []);
 
   return (
-    <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-line-strong bg-input px-2.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft">
+    <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-line-strong bg-input px-2.5 focus-within:border-fg-4">
       <Search size={14} className="shrink-0 text-fg-3" />
       <input
         ref={ref}
@@ -101,9 +101,10 @@ export function Header() {
           </div>
           {view === "inbox" && (
             <nav className="flex items-center gap-0.5 overflow-x-auto">
-              {splits.map((s) => (
+              {splits.map((s, i) => (
                 <SplitTab
                   key={s.id}
+                  hint={i < 9 ? `${i + 1}  ·  Tab / Shift+Tab to cycle` : undefined}
                   active={splitId === s.id}
                   label={s.name}
                   count={counts[`split:${s.id}`]}
@@ -117,7 +118,7 @@ export function Header() {
         </>
       )}
       {selected.size > 0 && (
-        <span className="rounded-md bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">
+        <span className="rounded-md bg-active px-2 py-0.5 text-xs font-medium text-fg-2">
           {selected.size} selected
         </span>
       )}
@@ -152,10 +153,23 @@ export function Header() {
   );
 }
 
-function SplitTab({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
+function SplitTab({
+  active,
+  label,
+  count,
+  hint,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count?: number;
+  hint?: string;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
+      title={hint ? `${label}  ·  ${hint}` : label}
       className={clsx(
         "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition-colors",
         active ? "bg-active text-fg" : "text-fg-3 hover:text-fg-2 hover:bg-hover",

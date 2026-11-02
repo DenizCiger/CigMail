@@ -121,7 +121,17 @@ impl Ctx {
             }
         }
         let mut flags = flags;
-        if p.from.email.eq_ignore_ascii_case(&self.account.email) && !flags.drafts {
+        let own_domain = self.account.email.rsplit('@').next().unwrap_or("");
+        let from_own_domain = p.from.email.rsplit('@').next().is_some_and(|d| d.eq_ignore_ascii_case(own_domain));
+        // Gmail and Outlook filter spam themselves; plain IMAP servers often
+        // only tag it in headers and leave it in INBOX.
+        if self.account.kind == crate::models::AccountKind::Imap
+            && (p.spam_flagged || (p.auth_failed && from_own_domain))
+        {
+            flags.spam = true;
+        }
+        // A forged "From: you" isn't something you sent.
+        if p.from.email.eq_ignore_ascii_case(&self.account.email) && !flags.drafts && !flags.spam && !p.auth_failed {
             flags.sent = true;
             flags.read = true;
         }

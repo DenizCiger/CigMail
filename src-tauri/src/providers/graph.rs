@@ -243,6 +243,7 @@ impl Graph {
             ThreadAction::Archive => Some("archive"),
             ThreadAction::Trash => Some("deleteditems"),
             ThreadAction::Inbox => Some("inbox"),
+            ThreadAction::Spam => Some("junkemail"),
             _ => None,
         };
         let this: &Graph = self;
@@ -261,7 +262,7 @@ impl Graph {
                             let mut f = r.flags;
                             f.inbox = d == "inbox";
                             f.trash = d == "deleteditems";
-                            f.spam = false;
+                            f.spam = d == "junkemail";
                             ctx.db.update_flags(&ctx.account.id, &r.remote_id, f, None, Some(folder))?;
                         }
                     }

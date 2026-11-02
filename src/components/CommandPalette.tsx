@@ -21,7 +21,7 @@ export function CommandPalette() {
   const [hits, setHits] = useState<ThreadSummary[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
 
-  const commands = useMemo(() => (open ? allCommands().filter((c) => !c.enabled || c.enabled()) : []), [open]);
+  const commands = useMemo(() => (open ? allCommands().filter((c) => !c.hidden && (!c.enabled || c.enabled())) : []), [open]);
 
   useEffect(() => {
     if (!open) {

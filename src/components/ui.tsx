@@ -76,7 +76,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
       ref={ref}
       className={clsx(
         "h-8 w-full rounded-md border border-line-strong bg-input px-2.5 text-[13px] text-fg placeholder:text-fg-4",
-        "focus:border-accent focus:ring-2 focus:ring-accent-soft transition-shadow",
+        "focus:border-fg-4 transition-colors",
         className,
       )}
       {...rest}
@@ -110,7 +110,7 @@ export function Select({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={clsx(
-        "h-8 rounded-md border border-line-strong bg-input px-2 text-[13px] text-fg focus:border-accent",
+        "h-8 rounded-md border border-line-strong bg-input px-2 text-[13px] text-fg focus:border-fg-4",
         className,
       )}
     >

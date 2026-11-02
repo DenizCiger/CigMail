@@ -215,11 +215,11 @@ function AiSummary({ detail }: { detail: ThreadDetail }) {
   const lines = (text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
   const [tldr, ...rest] = lines;
   return (
-    <section className="mx-6 mt-4 overflow-hidden rounded-lg border border-accent/25 bg-accent-soft/40">
-      <div className="flex items-center gap-2 px-3.5 pt-2.5 text-[11.5px] font-medium text-accent">
+    <section className="mx-6 mt-4 overflow-hidden rounded-lg border border-line bg-elev-2/60">
+      <div className="flex items-center gap-2 px-3.5 pt-2.5 text-[11.5px] font-medium text-fg-3">
         <Sparkles size={12} />
         <span className="flex-1">Summary</span>
-        {state === "loading" && <Spinner size={11} className="text-accent" />}
+        {state === "loading" && <Spinner size={11} />}
         <IconButton label="Regenerate" className="h-5 w-5" onClick={() => run(true)}>
           <RefreshCw size={11} />
         </IconButton>
@@ -315,6 +315,27 @@ export function ThreadView({ id }: { id: string }) {
     window.addEventListener("cm:reply", h);
     return () => window.removeEventListener("cm:reply", h);
   }, [latest, reply]);
+
+  useEffect(() => {
+    const unsubscribe = () => {
+      const link = [...(detail?.messages ?? [])]
+        .reverse()
+        .map((m) => m.listUnsubscribe?.match(/<(https?:[^>]+)>/)?.[1])
+        .find(Boolean);
+      if (link) openUrl(link);
+      else useStore.getState().toast("This conversation has no unsubscribe link");
+    };
+    const expandAll = () =>
+      setExpanded((cur) =>
+        detail && cur.size < detail.messages.length ? new Set(detail.messages.map((m) => m.id)) : new Set(latest ? [latest.id] : []),
+      );
+    window.addEventListener("cm:unsubscribe", unsubscribe);
+    window.addEventListener("cm:expand-all", expandAll);
+    return () => {
+      window.removeEventListener("cm:unsubscribe", unsubscribe);
+      window.removeEventListener("cm:expand-all", expandAll);
+    };
+  }, [detail, latest]);
 
   const pendingReply = useStore((s) => s.pendingReply);
   useEffect(() => {

@@ -172,6 +172,8 @@ function removesFrom(view: View, action: ThreadAction): boolean {
       return ["done", "trash", "spam", "snoozed"].includes(view);
     case "unstar":
       return view === "starred";
+    case "spam":
+      return view !== "spam";
     default:
       return false;
   }
@@ -180,6 +182,7 @@ function removesFrom(view: View, action: ThreadAction): boolean {
 const inverse: Partial<Record<ThreadAction, ThreadAction>> = {
   archive: "inbox",
   trash: "inbox",
+  spam: "inbox",
   star: "unstar",
   unstar: "star",
   read: "unread",
@@ -194,6 +197,7 @@ const actionLabel: Record<ThreadAction, string> = {
   unread: "Marked as unread",
   star: "Starred",
   unstar: "Unstarred",
+  spam: "Marked as spam",
 };
 
 export const useStore = create<State>((set, get) => ({
@@ -253,6 +257,10 @@ export const useStore = create<State>((set, get) => ({
       if (s.state === "idle" || s.state === "error" || s.state === "auth") {
         api.listAccounts().then((accounts) => set({ accounts }));
       }
+    });
+    listen<{ account: string; action: string; error: string }>("ops:failed", (e) => {
+      get().toast(`Couldn't apply “${e.payload.action}” on ${e.payload.account}: ${e.payload.error}`, { kind: "error", duration: 0 });
+      scheduleRefresh();
     });
     listen<string>("outbox:sent", () => get().toast("Message sent", { kind: "success", duration: 2500 }));
     listen<{ id: string; error: string }>("outbox:failed", async (e) => {

@@ -98,8 +98,7 @@ impl Engine {
     /// affected account workers.
     pub fn thread_action(&self, thread_ids: &[String], action: ThreadAction) -> Result<()> {
         let groups = self.db.apply_thread_action(thread_ids, action)?;
-        for (account_id, ids) in &groups {
-            self.db.push_op(account_id, &Op { action, ids: ids.clone() })?;
+        for (account_id, _) in &groups {
             self.wake(account_id);
         }
         let _ = self.app.emit("mail:changed", "local");
@@ -156,7 +155,13 @@ impl Engine {
                 Err(e) => {
                     tracing::warn!("op {op_id} failed: {e:#}");
                     if attempts >= 5 {
+                        // Give up, and tell the user: the next sync will show
+                        // the server's state again, which looks like an undo.
                         self.db.finish_op(op_id)?;
+                        let _ = self.app.emit(
+                            "ops:failed",
+                            serde_json::json!({ "account": ctx.account.email, "action": op.action, "error": format!("{e:#}") }),
+                        );
                     } else {
                         self.db.fail_op(op_id, &format!("{e:#}"))?;
                     }

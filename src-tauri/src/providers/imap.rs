@@ -421,8 +421,9 @@ impl Imap {
                     }
                     Some((seen, flagged, draft)) => {
                         let mut f = role_flags(role, *seen, *flagged, *draft);
-                        // Keep the "sent by me" marker set at ingest time.
+                        // Keep the "sent by me" and spam markers set at ingest time.
                         f.sent |= r.flags.sent;
+                        f.spam |= r.flags.spam && role == Role::Inbox;
                         if f != r.flags {
                             ctx.db.sync_flags(&acc, &r.remote_id, f, None, None)?;
                             changed = true;
@@ -446,6 +447,7 @@ impl Imap {
         let (slot, default) = match which {
             "archive" => (&mut folders.archive, "Archive"),
             "trash" => (&mut folders.trash, "Trash"),
+            "spam" => (&mut folders.spam, "Junk"),
             _ => return Ok(folders.inbox.clone()),
         };
         if let Some(f) = slot.clone() {
@@ -471,6 +473,7 @@ impl Imap {
             ThreadAction::Archive => Some(self.ensure_folder(ctx, "archive").await?),
             ThreadAction::Trash => Some(self.ensure_folder(ctx, "trash").await?),
             ThreadAction::Inbox => Some("INBOX".to_string()),
+            ThreadAction::Spam => Some(self.ensure_folder(ctx, "spam").await?),
             _ => None,
         };
         for (folder, msgs) in by_folder {
@@ -490,7 +493,7 @@ impl Imap {
                     });
                     let _: Vec<Fetch> = s.uid_store(&set, q).await?.try_collect().await?;
                 }
-                ThreadAction::Archive | ThreadAction::Trash | ThreadAction::Inbox => {
+                ThreadAction::Archive | ThreadAction::Trash | ThreadAction::Inbox | ThreadAction::Spam => {
                     let dest = target.clone().unwrap();
                     if dest == folder {
                         continue;

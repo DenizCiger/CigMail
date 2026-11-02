@@ -122,7 +122,7 @@ export interface ImapConfig {
   auth: "password" | "microsoftOAuth";
 }
 
-export type ThreadAction = "archive" | "inbox" | "trash" | "read" | "unread" | "star" | "unstar";
+export type ThreadAction = "archive" | "inbox" | "trash" | "read" | "unread" | "star" | "unstar" | "spam";
 
 export type View = "inbox" | "starred" | "snoozed" | "sent" | "drafts" | "done" | "trash" | "spam" | "search";
 

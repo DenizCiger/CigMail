@@ -35,6 +35,10 @@ pub struct Parsed {
     pub attachments: Vec<AttachmentMeta>,
     pub list_unsubscribe: Option<String>,
     pub bulk: bool,
+    /// The receiving server's spam verdict, from headers like X-Spam-Flag.
+    pub spam_flagged: bool,
+    /// SPF or DMARC failed, i.e. the From address is probably forged.
+    pub auth_failed: bool,
 }
 
 fn addresses(list: Option<mail_parser::AddressList<'_>>) -> Vec<Address> {
@@ -61,6 +65,33 @@ pub fn html_to_text(html: &str) -> String {
     html2text::from_read(html.as_bytes(), 100).unwrap_or_default()
 }
 
+/// Removes decoration that html-to-text conversion leaves behind (horizontal
+/// rules drawn with box characters, long runs of `-`, `=`, `_` ...).
+pub fn clean_snippet(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut run_char = '\0';
+    let mut run = 0;
+    for ch in s.chars() {
+        if ('\u{2500}'..='\u{257F}').contains(&ch) || ch == '\u{00A0}' || ch == '\u{200C}' || ch == '\u{034F}' {
+            continue;
+        }
+        if ch == run_char && matches!(ch, '-' | '=' | '_' | '*' | '~' | '.' | '#') {
+            run += 1;
+            if run >= 3 {
+                continue;
+            }
+        } else {
+            run_char = ch;
+            run = 1;
+        }
+        out.push(ch);
+    }
+    out.split_whitespace()
+        .filter(|w| !w.chars().all(|c| matches!(c, '-' | '=' | '_' | '*' | '~' | '.' | '#' | '|')) || w.len() == 1)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// A one-line preview without quoted replies or excess whitespace.
 pub fn make_snippet(text: &str) -> String {
     let mut out = String::new();
@@ -84,8 +115,7 @@ pub fn make_snippet(text: &str) -> String {
             break;
         }
     }
-    let collapsed: String = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    collapsed.chars().take(220).collect()
+    clean_snippet(&out).chars().take(220).collect()
 }
 
 pub fn parse(raw: &[u8]) -> Result<Parsed> {
@@ -155,6 +185,20 @@ pub fn parse(raw: &[u8]) -> Result<Parsed> {
             .get("Precedence")
             .and_then(|h| std::str::from_utf8(h.raw_value()).ok().map(|v| v.trim().to_ascii_lowercase()))
             .is_some_and(|v| v == "bulk" || v == "list");
+    let header_text = |name: &str| -> Option<String> {
+        headers
+            .get(name)
+            .and_then(|h| std::str::from_utf8(h.raw_value()).ok())
+            .map(|v| v.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase())
+    };
+    let spam_flagged = header_text("X-Spam-Flag").is_some_and(|v| v.starts_with("yes"))
+        || header_text("X-Spam-Status").is_some_and(|v| v.starts_with("yes"))
+        || header_text("X-Spam").is_some_and(|v| v.starts_with("yes") || v.starts_with("true"))
+        || header_text("X-Rspamd-Action")
+            .is_some_and(|v| v.starts_with("add header") || v.starts_with("rewrite subject") || v.starts_with("reject"))
+        || header_text("X-Spam-Level").is_some_and(|v| v.chars().filter(|c| *c == '*').count() >= 6);
+    let auth_failed = header_text("Authentication-Results")
+        .is_some_and(|v| v.contains("dmarc=fail") || v.contains("spf=fail"));
     let list_unsubscribe = headers
         .get("List-Unsubscribe")
         .and_then(|h| std::str::from_utf8(h.raw_value()).ok())
@@ -185,6 +229,8 @@ pub fn parse(raw: &[u8]) -> Result<Parsed> {
         attachments,
         list_unsubscribe,
         bulk,
+        spam_flagged,
+        auth_failed,
     })
 }
 
@@ -469,6 +515,20 @@ mod tests {
         assert_eq!(classify("hello@shop.com", &[], false, true), "newsletter");
         assert_eq!(classify("prof@uni.edu", &[], false, false), "primary");
         assert_eq!(classify("x@y.com", &["CATEGORY_PROMOTIONS".into()], false, false), "newsletter");
+    }
+
+    #[test]
+    fn cleans_snippets() {
+        assert_eq!(clean_snippet("New login ────────── from Linux"), "New login from Linux");
+        assert_eq!(clean_snippet("Hi -- there ===== ok"), "Hi there ok");
+    }
+
+    #[test]
+    fn detects_spam_headers() {
+        let raw = b"From: x@y.com\r\nX-Spam-Flag: YES\r\nSubject: s\r\n\r\nbody";
+        assert!(parse(raw).unwrap().spam_flagged);
+        let raw = b"From: me@ciger.dev\r\nAuthentication-Results: mx; spf=fail smtp.mailfrom=ciger.dev; dmarc=fail\r\n\r\nbody";
+        assert!(parse(raw).unwrap().auth_failed);
     }
 
     #[test]

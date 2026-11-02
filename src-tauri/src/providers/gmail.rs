@@ -266,6 +266,7 @@ impl Gmail {
             ThreadAction::Star => self.post_json(ctx, &url, &modify(&["STARRED"], &[])).await?,
             ThreadAction::Unstar => self.post_json(ctx, &url, &modify(&[], &["STARRED"])).await?,
             ThreadAction::Archive => self.post_json(ctx, &url, &modify(&[], &["INBOX"])).await?,
+            ThreadAction::Spam => self.post_json(ctx, &url, &modify(&["SPAM"], &["INBOX"])).await?,
             ThreadAction::Inbox => {
                 for r in refs.iter().filter(|r| r.flags.trash) {
                     self.post_json(ctx, &format!("{API}/messages/{}/untrash", r.remote_id), &json!({}))

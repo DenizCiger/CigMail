@@ -262,7 +262,7 @@ function AiAssist({
 
   return (
     <div
-      className="mx-4 mb-3 overflow-hidden rounded-lg border border-accent/30 bg-elev-2 animate-in"
+      className="mx-4 mb-3 overflow-hidden rounded-lg border border-line-strong bg-elev-2 animate-in"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -315,7 +315,7 @@ function AiAssist({
                 setPrompt(c);
                 run(c);
               }}
-              className="h-6 rounded-full border border-line-strong px-2.5 text-xs text-fg-2 hover:border-accent/60 hover:text-fg"
+              className="h-6 rounded-full border border-line-strong px-2.5 text-xs text-fg-2 hover:border-fg-4 hover:text-fg"
             >
               {c}
             </button>
@@ -453,6 +453,9 @@ export function Composer() {
     } else if (mod && (e.key === "j" || e.key === "J")) {
       e.preventDefault();
       setAiOpen((o) => !o);
+    } else if (mod && e.shiftKey && (e.key === "c" || e.key === "C" || e.key === "b" || e.key === "B")) {
+      e.preventDefault();
+      setShowCc(true);
     } else if (mod && e.shiftKey && (e.key === "a" || e.key === "A")) {
       e.preventDefault();
       attach();
@@ -577,7 +580,7 @@ export function Composer() {
           Send
           <span className="ml-1 text-[11px] opacity-70">{navigator.userAgent.includes("Mac") ? "⌘↵" : "Ctrl ↵"}</span>
         </Button>
-        <Button variant="ghost" onClick={() => setAiOpen((o) => !o)} className={aiOpen ? "text-accent" : ""}>
+        <Button variant="ghost" onClick={() => setAiOpen((o) => !o)} className={aiOpen ? "bg-active text-fg" : ""}>
           <Sparkles size={13} className="text-accent" />
           Write with AI
           <Kbd keys={["Mod", "J"]} className="ml-0.5" />
