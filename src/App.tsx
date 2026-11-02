@@ -15,6 +15,7 @@ import { Settings } from "./components/Settings";
 import { HelpOverlay } from "./components/HelpOverlay";
 import { Toasts } from "./components/Toasts";
 import { Onboarding } from "./components/Onboarding";
+import { ReconnectBanner } from "./components/ReconnectBanner";
 import { IconButton } from "./components/ui";
 
 function useTheme() {
@@ -99,6 +100,7 @@ export default function App() {
     <div className="flex h-full bg-bg text-fg">
       <Sidebar />
       <main className="my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel shadow-[0_1px_2px_rgb(0_0_0/0.1)] first:ml-2">
+        <ReconnectBanner />
         {accounts.length === 0 ? (
           <Onboarding />
         ) : openThreadId ? (

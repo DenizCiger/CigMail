@@ -20,7 +20,11 @@ export CIGMAIL_MICROSOFT_CLIENT_ID=00000000-0000-0000-0000-000000000000
    - **Data access / Scopes:** add `.../auth/gmail.modify`, `openid`, `.../auth/userinfo.email` and `.../auth/userinfo.profile`.
    - **Audience:** add your Gmail address(es) as **test users**.
 4. **Credentials → Create credentials → OAuth client ID → Application type: Desktop app**. Copy the **Client ID** and **Client secret** into CigMail.
-5. Optional but recommended: in *Audience*, click **Publish app** ("In production"). In *Testing* mode Google expires refresh tokens after 7 days, so you'd have to sign in again every week. An unverified personal app works fine. Google just shows a "Google hasn't verified this app" screen. Click *Advanced → Go to CigMail*.
+5. Optional: in *Audience*, click **Publish app** ("In production"). While the app stays in *Testing*, Google expires its sign-in after 7 days. CigMail then shows a **Reconnect** banner, and one click (plus the browser sign-in) fixes it.
+
+   Can't publish yet (Google wants branding details first)? You have two options:
+   - Stay in Testing and reconnect about once a week.
+   - Add Gmail as **IMAP / SMTP → Preset "Gmail (app password)"** instead. This needs 2-step verification and an [app password](https://myaccount.google.com/apppasswords). It never expires, but sync is slower than the Gmail API and Gmail labels don't appear.
 
 ## Outlook / Microsoft 365 (Entra ID)
 
@@ -30,7 +34,7 @@ export CIGMAIL_MICROSOFT_CLIENT_ID=00000000-0000-0000-0000-000000000000
    - Redirect URI: platform **Public client/native (mobile & desktop)**, URI `http://localhost`
 2. **Authentication** → *Advanced settings* → **Allow public client flows: Yes**.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated**: `User.Read`, `Mail.ReadWrite`, `Mail.Send`, `offline_access`, `openid`, `email`, `profile`.
-4. For the school IMAP fallback (below), also add **APIs my organization uses → Office 365 Exchange Online → Delegated**: `IMAP.AccessAsUser.All` and `SMTP.Send`.
+4. You don't need to add the IMAP/SMTP permissions (`IMAP.AccessAsUser.All`, `SMTP.Send`) for the school fallback below. Many tenants don't even list them in the portal (you may only see `EAS`/`EWS`). CigMail requests them when you sign in, which Microsoft calls dynamic consent.
 5. Copy the **Application (client) ID** into CigMail. Leave the tenant as `common`.
 
 ### School account blocked?

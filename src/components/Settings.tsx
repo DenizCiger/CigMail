@@ -502,7 +502,7 @@ function ImapForm({ onDone }: { onDone: () => void }) {
       {oauth && (
         <p className="rounded-md bg-hover px-3 py-2 text-xs text-fg-2">
           Signs in with Microsoft and uses IMAP/SMTP with OAuth. Use this when your school or work tenant blocks third-party Graph access. Requires
-          the Microsoft client ID under Connections, with the IMAP and SMTP permissions added.
+          the Microsoft client ID under Connections; the IMAP/SMTP permissions are requested when you sign in.
         </p>
       )}
       <div className="grid grid-cols-2 gap-3">
