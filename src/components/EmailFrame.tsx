@@ -76,7 +76,6 @@ const BASE_CSS = `
   /* contrast() keeps white from becoming pure black: it lands near the app's panel color. */
   .cm-paper.dark { background: #ffffff; filter: invert(1) hue-rotate(180deg) contrast(0.88); }
   .cm-paper.dark :is(img, video, picture, svg, [style*="background-image"], [background]) { filter: invert(1) hue-rotate(180deg); }
-  .cm-paper.blend { border-radius: 0; padding: 0; }
   .cm-body a { color: #3b48c4; }
   .cm-body img { max-width: 100%; height: auto; }
   .cm-body table { max-width: 100% !important; }
@@ -104,8 +103,6 @@ export function EmailFrame({ html, text, sender }: { html: string | null; text: 
   const allowRemote = settings.remote_images === "always" || allowOnce || trusted.includes(sender.toLowerCase());
   const appDark = document.documentElement.dataset.theme !== "light";
   const dark = settings.email_theme ? settings.email_theme === "dark" : appDark;
-  // When the email matches the app theme it blends into the page; otherwise it sits on a card.
-  const blend = dark === appDark;
 
   const content = useMemo(() => {
     if (html) return sanitize(html, allowRemote);
@@ -118,8 +115,8 @@ export function EmailFrame({ html, text, sender }: { html: string | null; text: 
     const root = el.shadowRoot ?? el.attachShadow({ mode: "open" });
     root.innerHTML =
       `<style>${BASE_CSS}</style><style>${content.styles}</style>` +
-      `<div class="cm-paper${dark ? " dark" : ""}${blend ? " blend" : ""}"><div class="cm-body" style="${escapeHtml(content.bodyStyle).replace(/"/g, "&quot;")}">${content.body}</div></div>`;
-  }, [content, dark, blend]);
+      `<div class="cm-paper${dark ? " dark" : ""}"><div class="cm-body" style="${escapeHtml(content.bodyStyle).replace(/"/g, "&quot;")}">${content.body}</div></div>`;
+  }, [content, dark]);
 
   const openLink = (href: string) => {
     if (href.startsWith("mailto:")) {
@@ -155,7 +152,7 @@ export function EmailFrame({ html, text, sender }: { html: string | null; text: 
       )}
       <div
         ref={host}
-        className="selectable"
+        className="selectable -mx-[18px]"
         onClick={(e) => {
           const a = linkAt(e);
           if (!a) return;
