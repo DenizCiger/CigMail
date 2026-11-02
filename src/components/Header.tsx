@@ -227,7 +227,7 @@ export function Header() {
                   onClick={() => setSplit(s.id)}
                 />
               ))}
-              <SplitTab active={splitId === null} label="All" onClick={() => setSplit(null)} />
+              <SplitTab active={splitId === null} label="All" hint="0  ·  Tab / Shift+Tab to cycle" onClick={() => setSplit(null)} />
             </nav>
           )}
           <div className="flex-1" />

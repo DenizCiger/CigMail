@@ -213,11 +213,24 @@ function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, detail.messages.length, ai?.connected]);
 
+  // Shift+S: regenerate an existing summary, otherwise make one (cached if possible).
+  const summarize = useCallback(() => {
+    if (!ai?.connected) set({ settingsSection: "ai" });
+    else run(!!text);
+  }, [ai?.connected, run, set, text]);
+
   useEffect(() => {
-    const h = () => (ai?.connected ? run(true) : set({ settingsSection: "ai" }));
-    window.addEventListener("cm:summarize", h);
-    return () => window.removeEventListener("cm:summarize", h);
-  }, [run, ai?.connected, set]);
+    window.addEventListener("cm:summarize", summarize);
+    return () => window.removeEventListener("cm:summarize", summarize);
+  }, [summarize]);
+
+  const pendingSummary = useStore((s) => s.pendingSummary);
+  useEffect(() => {
+    if (pendingSummary !== threadId) return;
+    useStore.setState({ pendingSummary: null });
+    // A long thread is summarized automatically on open; don't start a second run.
+    if (!(ai?.connected && auto && long)) summarize();
+  }, [pendingSummary, threadId, summarize, ai?.connected, auto, long]);
 
   if (!ai?.connected || (!text && state === "idle" && !long)) return null;
   if (!text && state === "idle") {

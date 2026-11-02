@@ -95,7 +95,7 @@ export function allCommands(): Command[] {
     { id: "forward", title: "Forward", section: "Conversation", keys: ["F"], icon: Forward, run: () => replyFromTarget("forward"), enabled: hasTarget },
     { id: "select", title: "Select conversation", section: "Conversation", keys: ["X"], icon: CheckCheck, run: () => st.toggleSelect(), enabled: () => !s().openThreadId },
     { id: "selectAll", title: "Select all", section: "Conversation", keys: ["Mod", "A"], icon: CheckCheck, run: () => st.selectAll(), enabled: () => !s().openThreadId },
-    { id: "summarize", title: "Summarize with AI", section: "Conversation", keys: ["Shift", "S"], icon: Sparkles, run: () => window.dispatchEvent(new CustomEvent("cm:summarize")), enabled: () => !!s().openThreadId },
+    { id: "summarize", title: "Summarize with AI", section: "Conversation", keys: ["Shift", "S"], icon: Sparkles, run: summarizeTarget, enabled: hasTarget },
     { id: "undo", title: "Undo", section: "Conversation", keys: ["Z"], icon: Undo2, run: () => st.undo() },
 
     // Navigation
@@ -151,12 +151,27 @@ export function allCommands(): Command[] {
     cmds.push({ id: "nextAccount", title: "Next account", section: "Accounts", keys: ["]"], icon: Mail, run: () => cycleAccount(1) });
     cmds.push({ id: "prevAccount", title: "Previous account", section: "Accounts", keys: ["Shift", "]"], icon: Mail, run: () => cycleAccount(-1) });
   }
+  cmds.push({ id: "split:all", title: "Show all (no split)", section: "Navigation", keys: ["0"], icon: Inbox, run: () => st.setSplit(null) });
   st.splits.forEach((sp, i) => {
     if (i < 9) {
       cmds.push({ id: `split:${i + 1}`, title: `Show split: ${sp.name}`, section: "Navigation", keys: [String(i + 1)], icon: Inbox, run: () => st.setSplit(sp.id) });
     }
   });
   return cmds;
+}
+
+/** Summarizes the conversation in view, opening it first if it isn't shown anywhere. */
+function summarizeTarget() {
+  const st = s();
+  const id = st.targets()[0];
+  if (!id) return;
+  const previewing = st.previewPane && !st.openThreadId && st.threads[st.cursor]?.id === id;
+  if (st.openThreadId === id || previewing) {
+    window.dispatchEvent(new CustomEvent("cm:summarize"));
+  } else {
+    st.set({ pendingSummary: id });
+    st.openThread(id);
+  }
 }
 
 /** Cycles All accounts → account 1 → account 2 … */
@@ -279,6 +294,7 @@ const bindings: Record<string, string> = {
 };
 for (let i = 1; i <= 9; i++) {
   bindings[String(i)] = `split:${i}`;
+  bindings["0"] = "split:all";
   bindings[`g ${i}`] = `account:${i}`;
 }
 

@@ -71,6 +71,8 @@ interface State {
   /** Reply requested before the thread finished loading. */
   pendingReply: "reply" | "replyAll" | "forward" | null;
   menu: { x: number; y: number; items: MenuItem[] } | null;
+  /** Summary requested (Shift+S) for a thread that's still loading. */
+  pendingSummary: string | null;
   previewPane: boolean;
   palette: boolean;
   snoozeFor: string[] | null;
@@ -246,6 +248,7 @@ export const useStore = create<State>((set, get) => ({
   composer: null,
   pendingReply: null,
   menu: null,
+  pendingSummary: null,
   previewPane: (() => {
     try {
       return localStorage.getItem("cm.previewPane") !== "false";
