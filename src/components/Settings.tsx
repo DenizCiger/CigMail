@@ -422,6 +422,26 @@ const PRESETS: { id: string; label: string; match: RegExp; cfg: Partial<ImapConf
   { id: "fastmail", label: "Fastmail", match: /@fastmail\.[a-z]+$/, cfg: { imapHost: "imap.fastmail.com", imapPort: 993, imapSecurity: "tls", smtpHost: "smtp.fastmail.com", smtpPort: 465, smtpSecurity: "tls" } },
 ];
 
+const BLANK_CONFIG: ImapConfig = {
+  imapHost: "",
+  imapPort: 993,
+  imapSecurity: "tls",
+  smtpHost: "",
+  smtpPort: 587,
+  smtpSecurity: "starttls",
+  username: "",
+  auth: "password",
+};
+
+/** Server settings guessed from an email address: a known provider, or imap./smtp. on its domain. */
+function detectConfig(email: string): ImapConfig {
+  const e = email.trim().toLowerCase();
+  const p = PRESETS.find((x) => x.id !== "m365" && x.match.test(e));
+  if (p) return { ...BLANK_CONFIG, ...p.cfg };
+  const domain = e.includes("@") ? e.split("@")[1] : "";
+  return domain ? { ...BLANK_CONFIG, imapHost: `imap.${domain}`, smtpHost: `smtp.${domain}` } : BLANK_CONFIG;
+}
+
 function ImapForm({ onDone }: { onDone: () => void }) {
   const reloadMeta = useStore((s) => s.reloadMeta);
   const toast = useStore((s) => s.toast);
@@ -430,35 +450,46 @@ function ImapForm({ onDone }: { onDone: () => void }) {
   const [label, setLabel] = useState("");
   const [password, setPassword] = useState("");
   const [preset, setPreset] = useState("custom");
-  const [cfg, setCfg] = useState<ImapConfig>({
-    imapHost: "",
-    imapPort: 993,
-    imapSecurity: "tls",
-    smtpHost: "",
-    smtpPort: 587,
-    smtpSecurity: "starttls",
-    username: "",
-    auth: "password",
-  });
+  const [cfg, setCfgState] = useState<ImapConfig>(() => detectConfig(""));
+  // Once the user edits server fields by hand, typing the email no longer overwrites them.
+  const [edited, setEdited] = useState(false);
+  const setCfg = (c: ImapConfig) => {
+    setEdited(true);
+    setCfgState(c);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [detecting, setDetecting] = useState(false);
   useEffect(() => {
-    if (preset !== "custom") return;
-    const p = PRESETS.find((x) => x.match.test(email.trim().toLowerCase()));
-    if (p) {
-      setCfg((c) => ({ ...c, ...p.cfg }));
-    } else if (email.includes("@") && !cfg.imapHost) {
-      const domain = email.split("@")[1];
-      setCfg((c) => ({ ...c, imapHost: `imap.${domain}`, smtpHost: `smtp.${domain}` }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email]);
+    if (preset !== "custom" || edited) return;
+    setCfgState((c) => ({ ...detectConfig(email), username: c.username }));
+    const e = email.trim().toLowerCase();
+    const domain = e.split("@")[1] ?? "";
+    // Unknown provider: probe the server for what it actually offers.
+    if (!domain.includes(".") || PRESETS.some((x) => x.id !== "m365" && x.match.test(e))) return;
+    let stale = false;
+    const t = window.setTimeout(async () => {
+      setDetecting(true);
+      const found = await api.detectServers(e).catch(() => null);
+      if (!stale) {
+        setDetecting(false);
+        if (found) setCfgState((c) => ({ ...c, ...found }));
+      }
+    }, 700);
+    return () => {
+      stale = true;
+      window.clearTimeout(t);
+      setDetecting(false);
+    };
+  }, [email, preset, edited]);
 
   const applyPreset = (id: string) => {
     setPreset(id);
+    setEdited(false);
     const p = PRESETS.find((x) => x.id === id);
-    if (p) setCfg((c) => ({ ...c, auth: "password", ...p.cfg }));
+    // Each preset starts from clean defaults so nothing leaks over from the previous one.
+    setCfgState((c) => ({ ...(p ? { ...BLANK_CONFIG, ...p.cfg } : detectConfig(email)), username: c.username }));
   };
 
   const oauth = cfg.auth === "microsoftOAuth";
@@ -522,25 +553,62 @@ function ImapForm({ onDone }: { onDone: () => void }) {
         </Field>
       </div>
       <details className="group">
-        <summary className="cursor-default text-xs text-fg-3 hover:text-fg-2">Server settings</summary>
+        <summary className="cursor-default text-xs text-fg-3 hover:text-fg-2">
+          Server settings
+          {detecting ? (
+            <span className="ml-2 inline-flex items-center gap-1.5 text-fg-4">
+              <Spinner size={10} /> detecting…
+            </span>
+          ) : (
+            cfg.imapHost && <span className="ml-2 text-fg-4">{cfg.imapHost}:{cfg.imapPort} · {cfg.smtpHost}:{cfg.smtpPort}</span>
+          )}
+        </summary>
         <div className="mt-3 grid grid-cols-[1fr_90px_120px] gap-3">
           <Field label="IMAP server">
             <Input value={cfg.imapHost} onChange={(e) => setCfg({ ...cfg, imapHost: e.target.value })} />
           </Field>
           <Field label="Port">
-            <Input value={cfg.imapPort} onChange={(e) => setCfg({ ...cfg, imapPort: Number(e.target.value) || 0 })} />
+            <Input
+              value={cfg.imapPort}
+              onChange={(e) => {
+                const port = Number(e.target.value) || 0;
+                setCfg({ ...cfg, imapPort: port, imapSecurity: port === 993 ? "tls" : port === 143 ? "starttls" : cfg.imapSecurity });
+              }}
+            />
           </Field>
           <Field label="Security">
-            <Select value={cfg.imapSecurity} onChange={(v) => setCfg({ ...cfg, imapSecurity: v as ImapConfig["imapSecurity"] })} options={sec} />
+            <Select
+              value={cfg.imapSecurity}
+              onChange={(v) => {
+                const security = v as ImapConfig["imapSecurity"];
+                const standard = [993, 143].includes(cfg.imapPort);
+                setCfg({ ...cfg, imapSecurity: security, imapPort: standard ? (security === "tls" ? 993 : 143) : cfg.imapPort });
+              }}
+              options={sec}
+            />
           </Field>
           <Field label="SMTP server">
             <Input value={cfg.smtpHost} onChange={(e) => setCfg({ ...cfg, smtpHost: e.target.value })} />
           </Field>
           <Field label="Port">
-            <Input value={cfg.smtpPort} onChange={(e) => setCfg({ ...cfg, smtpPort: Number(e.target.value) || 0 })} />
+            <Input
+              value={cfg.smtpPort}
+              onChange={(e) => {
+                const port = Number(e.target.value) || 0;
+                setCfg({ ...cfg, smtpPort: port, smtpSecurity: port === 465 ? "tls" : port === 587 ? "starttls" : cfg.smtpSecurity });
+              }}
+            />
           </Field>
           <Field label="Security">
-            <Select value={cfg.smtpSecurity} onChange={(v) => setCfg({ ...cfg, smtpSecurity: v as ImapConfig["smtpSecurity"] })} options={sec} />
+            <Select
+              value={cfg.smtpSecurity}
+              onChange={(v) => {
+                const security = v as ImapConfig["smtpSecurity"];
+                const standard = [465, 587, 25].includes(cfg.smtpPort);
+                setCfg({ ...cfg, smtpSecurity: security, smtpPort: standard ? (security === "tls" ? 465 : 587) : cfg.smtpPort });
+              }}
+              options={sec}
+            />
           </Field>
           <Field label="Username" hint="Defaults to the email address.">
             <Input value={cfg.username} onChange={(e) => setCfg({ ...cfg, username: e.target.value })} placeholder={email} />

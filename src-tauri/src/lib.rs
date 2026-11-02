@@ -23,7 +23,7 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "cigmail_lib=info,warn".into()),
+                .unwrap_or_else(|_| "cigmail_lib=info,warn,html5ever=error".into()),
         )
         .init();
     // Several dependencies pull in rustls; pick one crypto provider for all of them.
@@ -61,6 +61,7 @@ pub fn run() {
             commands::add_oauth_account,
             commands::add_imap_account,
             commands::test_imap,
+            commands::detect_servers,
             commands::reconnect_account,
             commands::update_account,
             commands::remove_account,

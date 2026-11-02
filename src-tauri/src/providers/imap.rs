@@ -1,7 +1,7 @@
 //! Generic IMAP + SMTP. Also used with XOAUTH2 as a fallback for Microsoft 365
 //! tenants that block Graph.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_imap::{
@@ -35,6 +35,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Sync + Debug> ImapStream for T {
 type Sess = Session<Box<dyn ImapStream>>;
 
 const FETCH_CHUNK: usize = 25;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_INITIAL_PER_FOLDER: usize = 3000;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -210,18 +211,28 @@ impl Imap {
     }
 
     pub async fn connect_with(cfg: &ImapConfig, secret: &str) -> Result<(Sess, bool)> {
-        let tcp = TcpStream::connect((cfg.imap_host.as_str(), cfg.imap_port))
-            .await
-            .with_context(|| format!("connecting to {}:{}", cfg.imap_host, cfg.imap_port))?;
-        let stream: Box<dyn ImapStream> = match cfg.imap_security {
-            Security::Tls => tls_wrap(&cfg.imap_host, tcp).await?,
-            Security::StartTls => tls_wrap(&cfg.imap_host, starttls(tcp).await?).await?,
-            Security::None => Box::new(tcp),
+        let connect = async {
+            let tcp = TcpStream::connect((cfg.imap_host.as_str(), cfg.imap_port))
+                .await
+                .with_context(|| format!("connecting to {}:{}", cfg.imap_host, cfg.imap_port))?;
+            let stream: Box<dyn ImapStream> = match cfg.imap_security {
+                Security::Tls => tls_wrap(&cfg.imap_host, tcp).await?,
+                Security::StartTls => tls_wrap(&cfg.imap_host, starttls(tcp).await?).await?,
+                Security::None => Box::new(tcp),
+            };
+            let mut client = Client::new(stream);
+            if cfg.imap_security != Security::StartTls {
+                client.read_response().await?.context("server closed the connection")?;
+            }
+            anyhow::Ok(client)
         };
-        let mut client = Client::new(stream);
-        if cfg.imap_security != Security::StartTls {
-            client.read_response().await?.context("server closed the connection")?;
-        }
+        let client = tokio::time::timeout(CONNECT_TIMEOUT, connect).await.map_err(|_| {
+            anyhow!(
+                "IMAP connection to {}:{} timed out. Port 993 usually needs SSL/TLS, 143 needs STARTTLS",
+                cfg.imap_host,
+                cfg.imap_port
+            )
+        })??;
         let mut session = match cfg.auth {
             ImapAuth::Password => client
                 .login(&cfg.username, secret)
@@ -509,22 +520,10 @@ impl Imap {
             ImapAuth::MicrosoftOAuth => oauth_token(ctx, &config::microsoft_imap(&ctx.db)?, false).await?,
         };
         let host = self.cfg.smtp_host.as_str();
-        let builder = match self.cfg.smtp_security {
-            Security::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host)?,
-            Security::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)?,
-            Security::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host),
-        };
-        let mut builder = builder
-            .port(self.cfg.smtp_port)
-            .credentials(Credentials::new(self.cfg.username.clone(), secret));
-        if self.cfg.auth == ImapAuth::MicrosoftOAuth {
-            builder = builder.authentication(vec![Mechanism::Xoauth2]);
-        }
-        builder
-            .build()
+        smtp_transport(&self.cfg, &secret)?
             .send_raw(&built.envelope, &built.raw)
             .await
-            .context("SMTP send failed")?;
+            .map_err(|e| anyhow!("SMTP send failed: {e}. {}", smtp_hint(&self.cfg)))?;
 
         // Most big providers file sent mail themselves; for the rest, append a copy.
         let auto_saves = ["gmail.com", "googlemail.com", "office365.com", "outlook.com", "icloud.com"]
@@ -560,20 +559,10 @@ impl Imap {
         let (mut s, _) = Self::connect_with(cfg, secret).await?;
         s.select("INBOX").await?;
         let _ = s.logout().await;
-        let host = cfg.smtp_host.as_str();
-        let builder = match cfg.smtp_security {
-            Security::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host)?,
-            Security::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)?,
-            Security::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host),
-        };
-        let transport: AsyncSmtpTransport<Tokio1Executor> = builder
-            .port(cfg.smtp_port)
-            .credentials(Credentials::new(cfg.username.clone(), secret.to_string()))
-            .build();
-        let ok = transport
+        let ok = smtp_transport(cfg, secret)?
             .test_connection()
             .await
-            .context("SMTP connection failed")?;
+            .map_err(|e| anyhow!("SMTP connection failed: {e}. {}", smtp_hint(cfg)))?;
         if !ok {
             bail!("SMTP server did not accept the connection");
         }
@@ -581,9 +570,93 @@ impl Imap {
     }
 }
 
+fn smtp_transport(cfg: &ImapConfig, secret: &str) -> Result<AsyncSmtpTransport<Tokio1Executor>> {
+    let host = cfg.smtp_host.as_str();
+    let builder = match cfg.smtp_security {
+        Security::Tls => AsyncSmtpTransport::<Tokio1Executor>::relay(host)?,
+        Security::StartTls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)?,
+        Security::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host),
+    };
+    let mut builder = builder
+        .port(cfg.smtp_port)
+        .timeout(Some(CONNECT_TIMEOUT))
+        .credentials(Credentials::new(cfg.username.clone(), secret.to_string()));
+    if cfg.auth == ImapAuth::MicrosoftOAuth {
+        builder = builder.authentication(vec![Mechanism::Xoauth2]);
+    }
+    Ok(builder.build())
+}
+
+/// Explains the most common SMTP misconfiguration: port and encryption not matching.
+fn smtp_hint(cfg: &ImapConfig) -> String {
+    match (cfg.smtp_port, cfg.smtp_security) {
+        (587, Security::Tls) => "Port 587 uses STARTTLS, not SSL/TLS".into(),
+        (465, Security::StartTls) => "Port 465 uses SSL/TLS, not STARTTLS".into(),
+        _ => format!(
+            "Check that {}:{} is reachable; many servers only offer port 465 (SSL/TLS) or 587 (STARTTLS)",
+            cfg.smtp_host, cfg.smtp_port
+        ),
+    }
+}
+
+async fn port_open(host: &str, port: u16) -> bool {
+    matches!(
+        tokio::time::timeout(Duration::from_secs(4), TcpStream::connect((host, port))).await,
+        Ok(Ok(_))
+    )
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detected {
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub imap_security: Security,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_security: Security,
+}
+
+/// Finds working IMAP/SMTP servers for a domain by probing the usual host
+/// names and ports in parallel. Returns `None` if nothing answers.
+pub async fn detect(domain: &str) -> Option<Detected> {
+    let domain = domain.trim().trim_start_matches('@').to_lowercase();
+    if domain.is_empty() {
+        return None;
+    }
+    let imap_hosts = [format!("imap.{domain}"), format!("mail.{domain}"), domain.clone()];
+    let smtp_hosts = [format!("smtp.{domain}"), format!("mail.{domain}"), domain.clone()];
+    let imap_candidates: Vec<(String, u16, Security)> = imap_hosts
+        .iter()
+        .flat_map(|h| [(h.clone(), 993, Security::Tls), (h.clone(), 143, Security::StartTls)])
+        .collect();
+    let smtp_candidates: Vec<(String, u16, Security)> = smtp_hosts
+        .iter()
+        .flat_map(|h| [(h.clone(), 465, Security::Tls), (h.clone(), 587, Security::StartTls)])
+        .collect();
+    let probe = |cands: Vec<(String, u16, Security)>| async move {
+        let open = futures::future::join_all(cands.iter().map(|(h, p, _)| port_open(h, *p))).await;
+        // Candidates are in preference order; take the first that answered.
+        cands.into_iter().zip(open).find(|(_, ok)| *ok).map(|(c, _)| c)
+    };
+    let (imap, smtp) = tokio::join!(probe(imap_candidates), probe(smtp_candidates));
+    let (imap_host, imap_port, imap_security) = imap?;
+    let (smtp_host, smtp_port, smtp_security) = smtp?;
+    Some(Detected { imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security })
+}
+
 #[cfg(test)]
 mod tests {
     use super::uid_set;
+
+    /// Hits the network; run with `cargo test -- --ignored detects`.
+    #[tokio::test]
+    #[ignore]
+    async fn detects_real_domain() {
+        let d = super::detect("ciger.dev").await;
+        println!("{d:?}");
+        assert!(d.is_some());
+    }
 
     #[test]
     fn compacts_uid_sets() {

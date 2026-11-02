@@ -148,6 +148,12 @@ pub struct NewImapAccount {
 }
 
 #[tauri::command]
+pub async fn detect_servers(email: String) -> Option<crate::providers::imap::Detected> {
+    let domain = email.rsplit_once('@').map(|(_, d)| d.to_string())?;
+    crate::providers::imap::detect(&domain).await
+}
+
+#[tauri::command]
 pub async fn test_imap(config: ImapConfig, password: String) -> CmdResult<()> {
     Imap::test(&config, &password).await?;
     Ok(())

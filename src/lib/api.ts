@@ -21,6 +21,11 @@ export const api = {
     invoke<Account>("add_oauth_account", { req: { kind, label } }),
   addImapAccount: (req: { email: string; name: string; label?: string; config: ImapConfig; password?: string }) =>
     invoke<Account>("add_imap_account", { req }),
+  detectServers: (email: string) =>
+    invoke<Pick<ImapConfig, "imapHost" | "imapPort" | "imapSecurity" | "smtpHost" | "smtpPort" | "smtpSecurity"> | null>(
+      "detect_servers",
+      { email },
+    ),
   testImap: (config: ImapConfig, password: string) => invoke<void>("test_imap", { config, password }),
   reconnectAccount: (id: string, password?: string) => invoke<void>("reconnect_account", { id, password }),
   updateAccount: (update: { id: string; name: string; label: string | null; color: string; signature: string | null }) =>
