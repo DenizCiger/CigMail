@@ -1,6 +1,8 @@
 import clsx from "clsx";
 import { useEffect, useState } from "react";
 import {
+  ChevronRight,
+  History,
   ArrowDown,
   ArrowUp,
   Check,
@@ -34,7 +36,12 @@ export function Settings() {
   if (!section) return null;
   const close = () => set({ settingsSection: null });
   return (
-    <Modal open onClose={close} className="flex h-[min(680px,86vh)] w-[min(940px,92vw)]">
+    <Modal
+      open
+      onClose={close}
+      onEscapeField={() => document.getElementById(`settings-tab-${section}`)?.focus()}
+      className="flex h-[min(680px,86vh)] w-[min(940px,92vw)]"
+    >
       <nav
         role="tablist"
         aria-orientation="vertical"
@@ -83,16 +90,16 @@ export function Settings() {
           Shortcuts
         </button>
         <div className="flex-1" />
-        <div className="px-2 pb-1 text-[11px] leading-relaxed text-fg-4">↑ ↓ switch section · → into section · ← back · Esc close</div>
+        <div className="px-2 pb-1 text-[11px] leading-relaxed text-fg-4">↑ ↓ switch section · → into section · ← back · Esc leaves a field, then closes</div>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
         <div
           id="settings-content"
           className="flex-1 overflow-y-auto px-8 py-7"
           onKeyDown={(e) => {
-            // Left arrow from content (outside text fields) goes back to the section list.
+            // ← (or Alt+← inside a text field) goes back to the section list.
             const t = e.target as HTMLElement;
-            if (e.key === "ArrowLeft" && !t.closest("input, textarea, select")) {
+            if (e.key === "ArrowLeft" && (e.altKey || !t.closest("input, textarea, select"))) {
               e.preventDefault();
               document.getElementById(`settings-tab-${section}`)?.focus();
             }
@@ -227,6 +234,12 @@ function AccountCard({ a }: { a: Account }) {
     toast("Account updated", { kind: "success" });
   };
   const reconnect = async () => {
+    // Password accounts need the new password, which lives in the expanded card.
+    if (a.kind === "imap" && !password && error) {
+      setOpen(true);
+      toast("Enter the new password, then press Reconnect");
+      return;
+    }
     setBusy("reconnect");
     try {
       await api.reconnectAccount(a.id, password || undefined);
@@ -241,8 +254,15 @@ function AccountCard({ a }: { a: Account }) {
 
   return (
     <div className="rounded-lg border border-line-strong">
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: a.color }} />
+      <div className={clsx("group flex items-center gap-1 pr-2 transition-colors hover:bg-hover", open ? "rounded-t-lg" : "rounded-lg")}>
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        title={open ? "Collapse" : "Edit name, label, color and signature"}
+        className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left"
+      >
+        <ChevronRight size={14} className={clsx("-ml-1 shrink-0 text-fg-3 transition-transform group-hover:text-fg-2", open && "rotate-90")} />
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: a.color }} />
         <ProviderGlyph kind={a.kind} size={16} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium">
@@ -259,8 +279,33 @@ function AccountCard({ a }: { a: Account }) {
                   : "Waiting for first sync"}
           </div>
         </div>
-        {sync?.state === "syncing" && <Spinner />}
       </button>
+        {sync?.state === "syncing" ? (
+          <span className="flex h-7 items-center px-2">
+            <Spinner />
+          </span>
+        ) : (
+          <Button size="sm" variant="ghost" icon={<RefreshCw size={12} />} title="Check for new mail now" onClick={() => api.syncNow(a.id)}>
+            Sync now
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<History size={12} />}
+          title="Delete the local copy of this account's mail and download it again"
+          onClick={async () => {
+            if (!window.confirm("Delete the local copy of this account's mail and download it again?")) return;
+            await api.resyncAccount(a.id);
+            toast("Resync started");
+          }}
+        >
+          Resync
+        </Button>
+        <Button size="sm" variant={error ? "primary" : "ghost"} icon={busy === "reconnect" ? <Spinner size={11} /> : <KeyRound size={12} />} title="Sign in again" onClick={reconnect} disabled={!!busy}>
+          Reconnect
+        </Button>
+      </div>
       {open && (
         <div className="flex flex-col gap-4 border-t border-line px-4 py-4">
           <div className="grid grid-cols-2 gap-3">
@@ -302,21 +347,12 @@ function AccountCard({ a }: { a: Account }) {
             <Button variant="primary" onClick={save}>
               Save
             </Button>
-            <Button onClick={reconnect} disabled={!!busy}>
-              {busy === "reconnect" && <Spinner size={12} />}
-              Reconnect
-            </Button>
-            <Button
-              variant="ghost"
-              icon={<RefreshCw size={13} />}
-              onClick={async () => {
-                if (!window.confirm("Delete the local copy of this account's mail and download it again?")) return;
-                await api.resyncAccount(a.id);
-                toast("Resync started");
-              }}
-            >
-              Resync
-            </Button>
+            {error && a.kind === "imap" && (
+              <Button onClick={reconnect} disabled={!!busy || !password}>
+                {busy === "reconnect" && <Spinner size={12} />}
+                Reconnect with new password
+              </Button>
+            )}
             <div className="flex-1" />
             <Button
               variant="ghost"

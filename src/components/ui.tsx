@@ -175,12 +175,15 @@ export function Modal({
   children,
   className,
   align = "center",
+  onEscapeField,
 }: {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
   className?: string;
   align?: "center" | "top";
+  /** Esc inside a text field calls this instead of closing (e.g. to move focus back out). */
+  onEscapeField?: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -188,7 +191,13 @@ export function Modal({
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        const field = (document.activeElement as HTMLElement | null)?.closest("input, textarea, select");
+        if (onEscapeField && field && panel.current?.contains(field)) {
+          e.preventDefault();
+          onEscapeField();
+        } else {
+          onClose();
+        }
       } else if (e.key === "Tab" && panel.current) {
         // Keep Tab cycling inside the dialog instead of the page behind it.
         const items = focusables(panel.current);
@@ -201,7 +210,7 @@ export function Modal({
     };
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
-  }, [open, onClose]);
+  }, [open, onClose, onEscapeField]);
   useEffect(() => {
     if (!open || !panel.current) return;
     if (panel.current.contains(document.activeElement)) return;

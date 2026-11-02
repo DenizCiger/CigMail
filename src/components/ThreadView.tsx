@@ -269,8 +269,8 @@ function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean
               <ul className="mt-1.5 space-y-1 text-fg-2">
                 {rest.map((l, i) =>
                   l.toLowerCase().startsWith("action:") ? (
-                    <li key={i} className="mt-2 flex gap-2 font-medium text-fg">
-                      <span className="rounded bg-warning/15 px-1.5 text-[11px] leading-5 text-warning">Action</span>
+                    <li key={i} className="mt-2 flex items-start gap-2 font-medium text-fg">
+                      <span className="mt-px shrink-0 rounded bg-warning/15 px-1.5 text-[11px] leading-5 text-warning">Action</span>
                       {l.slice(7).trim()}
                     </li>
                   ) : (
