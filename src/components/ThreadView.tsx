@@ -27,6 +27,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useStore } from "../store";
 import { aiStream, api, errorMessage } from "../lib/api";
+import { isMobile } from "../lib/platform";
 import { displayName, formatBytes, longDate, shortDate } from "../lib/format";
 import type { Message, ThreadDetail } from "../lib/types";
 import { Avatar, IconButton, Kbd, Spinner } from "./ui";
@@ -271,14 +272,18 @@ export function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: 
     if (!(ai?.connected && auto && long)) summarize();
   }, [pendingSummary, threadId, summarize, ai?.connected, auto, long]);
 
-  if (!ai?.connected || (!text && state === "idle" && !long)) return null;
+  if (!ai?.connected) return null;
   if (!text && state === "idle") {
     return (
       <button
         onClick={() => run(false)}
-        className="mx-4 mt-4 @xl:mx-6 flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-xs text-fg-3 hover:bg-hover hover:text-fg-2"
+        className={clsx(
+          "mx-4 mt-4 @xl:mx-6 flex items-center gap-2 rounded-lg border border-line px-3 text-fg-3 hover:bg-hover hover:text-fg-2",
+          isMobile ? "h-11 text-[14px]" : "py-2 text-xs",
+        )}
       >
-        <Sparkles size={13} className="text-accent" /> Summarize thread <Kbd keys={["Shift", "S"]} />
+        <Sparkles size={13} className="text-accent" /> Summarize thread
+        {!isMobile && <Kbd keys={["Shift", "S"]} />}
       </button>
     );
   }
