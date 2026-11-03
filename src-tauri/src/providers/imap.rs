@@ -290,6 +290,9 @@ impl Imap {
                 })
                 .collect()
         };
+        if !names.iter().any(|(n, _)| n.eq_ignore_ascii_case("INBOX")) {
+            bail!("server's folder list has no INBOX");
+        }
         Ok(Folders {
             inbox: "INBOX".into(),
             sent: find_folder(
@@ -311,9 +314,17 @@ impl Imap {
     pub async fn sync(&mut self, ctx: &Ctx) -> Result<()> {
         let mut st: State = ctx.db.sync_state(&ctx.account.id)?;
         let folders = match st.folders.clone() {
-            Some(f) => f,
-            None => {
-                let f = self.discover_folders(ctx).await?;
+            Some(f) if f.sent.is_some() => f,
+            // Keep looking for a Sent folder until there is one: it may not have
+            // existed yet when the account was added.
+            cached => {
+                let mut f = self.discover_folders(ctx).await?;
+                if let Some(c) = cached {
+                    f.archive = c.archive.or(f.archive);
+                    f.trash = c.trash.or(f.trash);
+                    f.spam = c.spam.or(f.spam);
+                    f.drafts = c.drafts.or(f.drafts);
+                }
                 st.folders = Some(f.clone());
                 f
             }
@@ -339,7 +350,11 @@ impl Imap {
         let days = ctx.sync_days();
         let s = self.session(ctx).await?;
         let mbox = s.select(folder).await.with_context(|| format!("selecting {folder}"))?;
-        let validity = mbox.uid_validity.unwrap_or(0);
+        // A healthy SELECT always reports UIDVALIDITY. Without it the connection
+        // is out of step, and treating it as a reset would wipe the local cache.
+        let validity = mbox
+            .uid_validity
+            .with_context(|| format!("server sent no UIDVALIDITY for {folder}"))?;
         if validity != bs.uid_validity {
             // UIDs were reset by the server; everything we have for this folder is stale.
             for (_, r) in ctx.db.folder_uids(&acc, folder)? {
@@ -445,6 +460,7 @@ impl Imap {
             None => self.discover_folders(ctx).await?,
         };
         let (slot, default) = match which {
+            "sent" => (&mut folders.sent, "Sent"),
             "archive" => (&mut folders.archive, "Archive"),
             "trash" => (&mut folders.trash, "Trash"),
             "spam" => (&mut folders.spam, "Junk"),
@@ -533,12 +549,14 @@ impl Imap {
             .iter()
             .any(|h| host.ends_with(h));
         if !auto_saves {
-            let st: State = ctx.db.sync_state(&ctx.account.id)?;
-            if let Some(sent) = st.folders.and_then(|f| f.sent) {
-                let s = self.session(ctx).await?;
-                if let Err(e) = s.append(&sent, Some("(\\Seen)"), None, &built.raw).await {
-                    tracing::warn!("could not save sent copy: {e}");
+            match self.ensure_folder(ctx, "sent").await {
+                Ok(sent) => {
+                    let s = self.session(ctx).await?;
+                    if let Err(e) = s.append(&sent, Some("(\\Seen)"), None, &built.raw).await {
+                        tracing::warn!("could not save sent copy: {e}");
+                    }
                 }
+                Err(e) => tracing::warn!("could not find or create a Sent folder: {e:#}"),
             }
         }
         Ok(())

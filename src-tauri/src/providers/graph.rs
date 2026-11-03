@@ -107,8 +107,16 @@ impl Graph {
                     }
                 }
                 // Not every mailbox has an Archive folder.
-                Err(e) if http_status(&e) == Some(404) => {}
-                Err(e) => return Err(e),
+                Err(e) if http_status(&e) == Some(404) && wk == "archive" => {}
+                // Some Outlook.com mailboxes aren't reachable through Graph at all
+                // and answer 404 for every folder.
+                Err(e) if e.to_string().contains("MailboxNotEnabledForRESTAPI") => {
+                    return Err(e.context(
+                        "This mailbox can't be reached through Microsoft Graph. \
+                         Remove it and add it again as IMAP with Microsoft sign-in.",
+                    ));
+                }
+                Err(e) => return Err(e.context(format!("looking up the {wk} folder"))),
             }
         }
         Ok(())
