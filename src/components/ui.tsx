@@ -1,6 +1,7 @@
 import clsx from "clsx";
-import { forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown, X } from "lucide-react";
 import { colorFor, initials, mod } from "../lib/format";
 import type { Address } from "../lib/types";
 
@@ -102,32 +103,177 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
   );
 }
 
+/** True while the media query matches; re-renders when it flips. */
+export function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const h = () => setMatches(mq.matches);
+    h();
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, [query]);
+  return matches;
+}
+
+/**
+ * A themed replacement for <select>: the native popup ignores the app's colors
+ * on most platforms. The list is portaled to <body> so dialogs don't clip it.
+ */
 export function Select({
   value,
   onChange,
   options,
   className,
+  bare,
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: ReactNode }[];
   className?: string;
+  /** No border or fill, for selects that sit inline in a form row. */
+  bare?: boolean;
 }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number }>();
+  const current = options.find((o) => o.value === value) ?? options[0];
+
+  const show = () => {
+    const r = trigger.current!.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 8;
+    const above = r.top - 8;
+    const want = Math.min(options.length * 28 + 8, 320);
+    const up = below < want && above > below;
+    setPos({
+      left: r.left,
+      width: r.width,
+      ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      maxHeight: Math.min(want, (up ? above : below) - 4),
+    });
+    setActive(Math.max(0, options.findIndex((o) => o.value === value)));
+    setOpen(true);
+  };
+  const close = (refocus = true) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus();
+  };
+  const pick = (i: number) => {
+    const o = options[i];
+    if (o && o.value !== value) onChange(o.value);
+    close();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    list.current?.focus();
+    const outside = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!list.current?.contains(t) && !trigger.current?.contains(t)) close(false);
+    };
+    const dismiss = (e: Event) => {
+      if (!list.current?.contains(e.target as Node)) close(false);
+    };
+    window.addEventListener("mousedown", outside, true);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      window.removeEventListener("mousedown", outside, true);
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) list.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={clsx(
-        "h-8 rounded-md border border-line-strong bg-input px-2 text-[13px] text-fg focus:border-fg-4",
-        className,
-      )}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value} className="bg-elev">
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => (open ? close() : show())}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === " " || e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            show();
+          }
+        }}
+        className={clsx(
+          "inline-flex h-8 min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-[13px] text-fg transition-colors",
+          bare ? "hover:bg-hover" : "border border-line-strong bg-input hover:border-fg-4",
+          open && !bare && "border-fg-4",
+          className,
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{current?.label}</span>
+        <ChevronDown size={14} className="shrink-0 text-fg-3" />
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={list}
+            role="listbox"
+            tabIndex={-1}
+            data-own-escape
+            aria-activedescendant={`opt-${active}`}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) close(false);
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "ArrowDown") setActive((i) => Math.min(options.length - 1, i + 1));
+              else if (e.key === "ArrowUp") setActive((i) => Math.max(0, i - 1));
+              else if (e.key === "Home") setActive(0);
+              else if (e.key === "End") setActive(options.length - 1);
+              else if (e.key === "Enter" || e.key === " ") pick(active);
+              else if (e.key === "Escape" || e.key === "Tab") close();
+              else if (e.key.length === 1) {
+                // Type-ahead: jump to the next option starting with that letter.
+                const k = e.key.toLowerCase();
+                const n = options.length;
+                for (let step = 1; step <= n; step++) {
+                  const i = (active + step) % n;
+                  if (String(options[i].label).toLowerCase().startsWith(k)) {
+                    setActive(i);
+                    break;
+                  }
+                }
+              } else return;
+              e.preventDefault();
+            }}
+            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, minWidth: pos.width, maxHeight: pos.maxHeight }}
+            className="fixed z-[60] max-w-[min(420px,calc(100vw-16px))] overflow-y-auto rounded-lg bg-elev p-1 shadow-pop animate-in"
+          >
+            {options.map((o, i) => (
+              <div
+                key={o.value}
+                id={`opt-${i}`}
+                data-index={i}
+                role="option"
+                aria-selected={o.value === value}
+                onMouseMove={() => setActive(i)}
+                onClick={() => pick(i)}
+                className={clsx(
+                  "flex h-7 items-center gap-2 rounded-md px-2 text-[13px]",
+                  i === active ? "bg-active text-fg" : "text-fg-2",
+                )}
+              >
+                <span className="flex-1 truncate">{o.label}</span>
+                <Check size={13} className={clsx("shrink-0 text-accent", o.value !== value && "invisible")} />
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -189,6 +335,8 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => {
+      // Popovers inside the dialog (e.g. an open Select) handle their own Esc.
+      if ((document.activeElement as HTMLElement | null)?.closest("[data-own-escape]")) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         const field = (document.activeElement as HTMLElement | null)?.closest("input, textarea, select");

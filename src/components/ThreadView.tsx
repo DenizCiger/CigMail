@@ -155,10 +155,10 @@ function MessageCard({
       <button
         onClick={onToggle}
         onContextMenu={onContextMenu}
-        className="flex w-full items-center gap-3 border-b border-line px-6 py-2.5 text-left hover:bg-hover"
+        className="flex w-full items-center gap-3 border-b border-line px-4 py-2.5 text-left hover:bg-hover @xl:px-6"
       >
         <Avatar address={m.from} size={24} />
-        <span className={clsx("w-40 shrink-0 truncate text-[13px]", !m.isRead ? "font-semibold" : "text-fg-2")}>
+        <span className={clsx("w-28 shrink-0 truncate text-[13px] @xl:w-40", !m.isRead ? "font-semibold" : "text-fg-2")}>
           {displayName(m.from, me)}
         </span>
         <span className="min-w-0 flex-1 truncate text-[13px] text-fg-3">{m.snippet}</span>
@@ -168,13 +168,13 @@ function MessageCard({
     );
   }
   return (
-    <article className="border-b border-line px-6 pb-6 pt-4">
+    <article className="border-b border-line px-4 pb-6 pt-4 @xl:px-6">
       <header className="mb-4 flex items-start gap-3" onContextMenu={onContextMenu}>
         <Avatar address={m.from} size={32} />
         <div className="min-w-0 flex-1 cursor-pointer" onClick={onToggle}>
           <div className="flex items-baseline gap-2">
             <span className="truncate text-[13.5px] font-semibold">{displayName(m.from, me)}</span>
-            <span className="truncate text-xs text-fg-3 selectable">{m.from.email}</span>
+            <span className="hidden truncate text-xs text-fg-3 selectable @lg:inline">{m.from.email}</span>
           </div>
           <div className="flex gap-2 text-xs">
             <Recipients m={m} me={me} />
@@ -186,10 +186,11 @@ function MessageCard({
               Unsubscribe
             </button>
           )}
-          <span title={longDate(m.date)}>{longDate(m.date)}</span>
+          <span title={longDate(m.date)} className="hidden @2xl:inline">{longDate(m.date)}</span>
+          <span title={longDate(m.date)} className="tabular-nums @2xl:hidden">{shortDate(m.date)}</span>
         </div>
       </header>
-      <div className="pl-11 selectable">
+      <div className="selectable @xl:pl-11">
         <EmailFrame html={m.bodyHtml} text={m.bodyText ?? m.snippet} sender={m.from.email} />
         <Attachments m={m} />
       </div>
@@ -275,7 +276,7 @@ function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean
     return (
       <button
         onClick={() => run(false)}
-        className="mx-6 mt-4 flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-xs text-fg-3 hover:bg-hover hover:text-fg-2"
+        className="mx-4 mt-4 @xl:mx-6 flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-xs text-fg-3 hover:bg-hover hover:text-fg-2"
       >
         <Sparkles size={13} className="text-accent" /> Summarize thread <Kbd keys={["Shift", "S"]} />
       </button>
@@ -285,7 +286,7 @@ function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean
   const lines = (text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
   const [tldr, ...rest] = lines;
   return (
-    <section className="mx-6 mt-4 overflow-hidden rounded-lg border border-line bg-elev-2/60">
+    <section className="mx-4 mt-4 @xl:mx-6 overflow-hidden rounded-lg border border-line bg-elev-2/60">
       <div className="flex items-center gap-2 px-3.5 pt-2.5 text-[11.5px] font-medium text-fg-3">
         <Sparkles size={12} />
         <span className="flex-1">Summary</span>
@@ -466,7 +467,7 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
   const t = detail?.thread ?? threads.find((x) => x.id === id);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="@container flex h-full flex-col">
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line px-3">
         {!preview && (
           <>
@@ -507,11 +508,11 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
           </IconButton>
         )}
         {threads.length > 0 && (
-          <span className="mr-2 text-xs tabular-nums text-fg-3">
+          <span className="mr-2 hidden whitespace-nowrap text-xs tabular-nums text-fg-3 @md:inline">
             {cursor + 1} / {threads.length}
           </span>
         )}
-        <span className="flex items-center gap-1 text-[11px] text-fg-4">
+        <span className="hidden items-center gap-1 text-[11px] text-fg-4 @lg:flex">
           <Kbd keys={["J"]} />
           <Kbd keys={["K"]} />
         </span>
@@ -519,12 +520,12 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[920px] pb-10">
-          <div className="px-6 pb-1 pt-6">
+          <div className="px-4 pb-1 pt-6 @xl:px-6">
             <h2 className="text-[19px] font-semibold leading-snug tracking-[-0.01em] selectable">
               {t?.subject || "(no subject)"}
             </h2>
             {account && (
-              <div className="mt-1.5 flex items-center gap-2 text-xs text-fg-3">
+              <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-fg-3">
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: account.color }} />
                 {account.label ? `${account.label} · ${account.email}` : account.email}
                 {t && t.category !== "primary" && (
@@ -539,7 +540,7 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
           <div className="mt-4 border-t border-line">
             {!detail &&
               Array.from({ length: 2 }).map((_, i) => (
-                <div key={i} className="flex flex-col gap-2 border-b border-line px-6 py-5">
+                <div key={i} className="flex flex-col gap-2 border-b border-line px-4 py-5 @xl:px-6">
                   <div className="skeleton h-3 w-48" />
                   <div className="skeleton h-3 w-[70%]" />
                   <div className="skeleton h-3 w-[55%]" />
@@ -564,12 +565,12 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
           </div>
 
           {composer?.inline && composer.draft.threadId === id ? (
-            <div className="px-6 pt-5">
+            <div className="px-4 pt-5 @xl:px-6">
               <Composer key={composer.key} />
             </div>
           ) : (
             latest && (
-              <div className="flex gap-2 px-6 pt-5">
+              <div className="flex flex-wrap gap-2 px-4 pt-5 @xl:px-6">
                 <ReplyButton icon={<Reply size={14} />} label="Reply" k="R" onClick={() => reply("reply", latest.id)} />
                 <ReplyButton icon={<ReplyAll size={14} />} label="Reply all" k="A" onClick={() => reply("replyAll", latest.id)} />
                 <ReplyButton icon={<Forward size={14} />} label="Forward" k="F" onClick={() => reply("forward", latest.id, false)} />

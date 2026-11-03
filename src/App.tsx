@@ -122,7 +122,7 @@ export default function App() {
             {view === "drafts" && <LocalDrafts />}
             {previewPane ? (
               <div className="flex min-h-0 flex-1">
-                <div className="min-h-0 w-[38%] min-w-[340px] max-w-[520px] shrink-0 border-r border-line">
+                <div className="min-h-0 w-[38%] min-w-[290px] max-w-[520px] shrink-0 border-r border-line">
                   <ThreadList compact />
                 </div>
                 <div className="min-w-0 flex-1">

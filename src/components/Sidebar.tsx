@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useStore } from "../store";
 import type { View } from "../lib/types";
-import { AccountDot, Spinner } from "./ui";
+import { AccountDot, Spinner, useMediaQuery } from "./ui";
 import { accountLabel, mod } from "../lib/format";
 
 const NAV: { view: View; label: string; icon: LucideIcon; keys: string[] }[] = [
@@ -55,6 +55,23 @@ function NavItem({
   title?: string;
   children?: React.ReactNode;
 }) {
+  const rail = useRail();
+  if (rail)
+    return (
+      <button
+        onClick={onClick}
+        title={title ?? label}
+        aria-label={label}
+        className={clsx(
+          "group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
+          active ? "bg-active text-fg" : "text-fg-3 hover:bg-hover hover:text-fg",
+        )}
+      >
+        {Icon && <Icon size={16} strokeWidth={1.8} />}
+        {children}
+        {!!count && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent" />}
+      </button>
+    );
   return (
     <button
       onClick={onClick}
@@ -71,6 +88,11 @@ function NavItem({
       {keys && <KeyHint keys={keys} />}
     </button>
   );
+}
+
+/** Below this width the sidebar shrinks to an icon rail so the reading pane keeps its room. */
+function useRail() {
+  return useMediaQuery("(max-width: 1100px)");
 }
 
 /** A quiet shortcut label, e.g. "G I", that brightens on hover. */
@@ -98,8 +120,10 @@ export function Sidebar() {
   const compose = useStore((s) => s.compose);
   const openSearch = useStore((s) => s.openSearch);
   const collapsed = useStore((s) => s.sidebarCollapsed);
+  const rail = useRail();
 
   if (collapsed) return null;
+  if (rail) return <Rail />;
 
   return (
     <aside className="flex w-[232px] shrink-0 flex-col px-2.5 pb-2.5 pt-3">
@@ -213,6 +237,81 @@ export function Sidebar() {
           <Keyboard size={15} strokeWidth={1.8} />
         </button>
       </div>
+    </aside>
+  );
+}
+
+/** Narrow-window sidebar: the same destinations as icons, names in tooltips. */
+function Rail() {
+  const view = useStore((s) => s.view);
+  const accounts = useStore((s) => s.accounts);
+  const accountFilter = useStore((s) => s.accountFilter);
+  const counts = useStore((s) => s.counts);
+  const sync = useStore((s) => s.sync);
+  const set = useStore((s) => s.set);
+  const setView = useStore((s) => s.setView);
+  const setAccountFilter = useStore((s) => s.setAccountFilter);
+  const compose = useStore((s) => s.compose);
+  const openSearch = useStore((s) => s.openSearch);
+
+  return (
+    <aside className="flex w-[52px] shrink-0 flex-col items-center gap-px overflow-y-auto pb-2.5 pt-3">
+      <button
+        onClick={() => compose()}
+        title="New message · C"
+        aria-label="New message"
+        className="mb-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line-strong bg-elev-2 text-fg-2 hover:bg-active hover:text-fg"
+      >
+        <PenSquare size={15} />
+      </button>
+      <NavItem icon={Search} label="Search" title="Search · /" onClick={openSearch} />
+      <div className="my-1.5 h-px w-6 shrink-0 bg-line" />
+      {[...NAV, ...MORE].map((n) => (
+        <NavItem
+          key={n.view}
+          icon={n.icon}
+          label={n.label}
+          active={view === n.view}
+          count={n.view === "inbox" ? counts["filtered"] : undefined}
+          onClick={() => setView(n.view)}
+          title={`${n.label} · ${n.keys.join(" then ")}`}
+        />
+      ))}
+      <div className="my-1.5 h-px w-6 shrink-0 bg-line" />
+      {accounts.length > 1 && (
+        <NavItem
+          icon={Layers}
+          label="All accounts"
+          title="Unified inbox  ·  G then 0"
+          active={accountFilter === null}
+          onClick={() => setAccountFilter(null)}
+        />
+      )}
+      {accounts.map((a, i) => {
+        const st = sync[a.id];
+        const err = st?.state === "error" || st?.state === "auth" || (!st && a.lastError);
+        return (
+          <NavItem
+            key={a.id}
+            label={accountLabel(a)}
+            title={`${accountLabel(a)} · ${a.email}${i < 9 ? `  ·  G then ${i + 1}` : ""}${err ? `\n${st?.message ?? a.lastError}` : ""}`}
+            active={accountFilter === a.id}
+            onClick={() => setAccountFilter(accountFilter === a.id ? null : a.id)}
+          >
+            {st?.state === "syncing" ? (
+              <Spinner size={12} />
+            ) : err ? (
+              <AlertCircle size={14} className="text-danger" />
+            ) : (
+              <AccountDot color={a.color} size={9} />
+            )}
+          </NavItem>
+        );
+      })}
+      <NavItem icon={Plus} label="Add account" onClick={() => set({ settingsSection: "accounts" })} />
+      <div className="flex-1" />
+      <NavItem icon={Keyboard} label="Keyboard shortcuts" title="Keyboard shortcuts  ·  ?" onClick={() => set({ help: true })} />
+      <NavItem icon={Settings} label="Settings" title={`Settings  ·  ${mod} ,`} onClick={() => set({ settingsSection: "general" })} />
     </aside>
   );
 }

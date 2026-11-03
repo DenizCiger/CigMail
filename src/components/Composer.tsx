@@ -10,7 +10,7 @@ import { useStore } from "../store";
 import { aiStream, api } from "../lib/api";
 import { formatAddress, parseAddresses, textToHtml } from "../lib/format";
 import type { Address, Contact, Draft } from "../lib/types";
-import { Avatar, Button, IconButton, Kbd, Spinner } from "./ui";
+import { Avatar, Button, IconButton, Kbd, Select, Spinner } from "./ui";
 
 // ------------------------------------------------------------------ recipients
 
@@ -490,18 +490,16 @@ export function Composer() {
       {accounts.length > 1 && (
         <div className="flex h-9 items-center gap-2 border-b border-line px-4">
           <span className="w-10 shrink-0 text-[13px] text-fg-3">From</span>
-          <select
+          <Select
+            bare
             value={draft.accountId}
-            onChange={(e) => update({ accountId: e.target.value })}
-            className="h-7 flex-1 bg-transparent text-[13px]"
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id} className="bg-elev">
-                {formatAddress({ name: a.name, email: a.email })}
-                {a.label ? `  ·  ${a.label}` : ""}
-              </option>
-            ))}
-          </select>
+            onChange={(accountId) => update({ accountId })}
+            className="-ml-2.5 h-7 flex-1"
+            options={accounts.map((a) => ({
+              value: a.id,
+              label: `${formatAddress({ name: a.name, email: a.email })}${a.label ? `  ·  ${a.label}` : ""}`,
+            }))}
+          />
           <span className="h-2 w-2 rounded-full" style={{ background: account?.color }} />
         </div>
       )}

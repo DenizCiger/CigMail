@@ -143,15 +143,15 @@ export function EmailFrame({ html, text, sender }: { html: string | null; text: 
   return (
     <div>
       {content.blocked > 0 && !allowRemote && (
-        <div className="mb-3 flex items-center gap-2 rounded-md border border-line bg-hover px-3 py-1.5 text-xs text-fg-3">
-          <ImageOff size={13} />
-          <span className="flex-1">Remote images are blocked to protect your privacy.</span>
-          <button className="flex items-center gap-1.5 text-fg-2 hover:text-fg" onClick={() => setAllowOnce(true)}>
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-line bg-hover px-3 py-1.5 text-xs text-fg-3">
+          <ImageOff size={13} className="shrink-0" />
+          <span className="min-w-[10rem] flex-1">Remote images are blocked to protect your privacy.</span>
+          <button className="flex items-center gap-1.5 whitespace-nowrap text-fg-2 hover:text-fg" onClick={() => setAllowOnce(true)}>
             Load once <Kbd keys={["I"]} />
           </button>
           <span className="text-fg-4">·</span>
           <button
-            className="flex items-center gap-1.5 text-fg-2 hover:text-fg"
+            className="flex items-center gap-1.5 whitespace-nowrap text-fg-2 hover:text-fg"
             onClick={() => setSetting("image_senders", JSON.stringify([...trusted, sender.toLowerCase()]))}
           >
             Always from this sender <Kbd keys={["Shift", "I"]} />
