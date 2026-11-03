@@ -246,3 +246,29 @@ button {
   font-size: 14px;
   line-height: 1.6;
 }
+
+/* ------------------------------------------------------------------ mobile */
+
+html.mobile body {
+  font-size: 15px;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* No keyboard shortcuts on a phone, so no hints for them either. */
+html.mobile .kbd {
+  display: none;
+}
+
+/* Text is selectable where it's useful (fields, mail bodies), not on buttons and rows. */
+html.mobile button {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* Inputs under 16px make mobile browsers zoom in on focus. */
+html.mobile input,
+html.mobile textarea {
+  font-size: max(16px, 1em);
+}

@@ -17,7 +17,7 @@ function addDays(d: Date, n: number) {
   return x;
 }
 
-function presets(now = new Date()) {
+export function presets(now = new Date()) {
   const list: { label: string; key: string; date: Date }[] = [];
   const laterToday = new Date(now.getTime() + 3 * 3600_000);
   if (laterToday.getDate() === now.getDate()) list.push({ label: "Later today", key: "1", date: laterToday });

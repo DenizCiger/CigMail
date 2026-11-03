@@ -19,7 +19,7 @@ import { Onboarding } from "./components/Onboarding";
 import { ReconnectBanner } from "./components/ReconnectBanner";
 import { IconButton } from "./components/ui";
 
-function useTheme() {
+export function useTheme() {
   const theme = useStore((s) => s.settings.theme ?? "system");
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");

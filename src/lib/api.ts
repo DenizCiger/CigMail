@@ -50,6 +50,11 @@ export const api = {
   listDrafts: () => invoke<Draft[]>("list_drafts"),
   deleteDraft: (id: string) => invoke<void>("delete_draft", { id }),
   suggestContacts: (query: string) => invoke<Contact[]>("suggest_contacts", { query }),
+  /** Copies a file picked in the webview to disk so it can be attached. Returns its path. */
+  stageAttachment: async (file: File) =>
+    invoke<string>("stage_attachment", new Uint8Array(await file.arrayBuffer()), {
+      headers: { "x-file-name": encodeURIComponent(file.name) },
+    }),
   saveAttachments: (messageIds: string[]) => invoke<string[]>("save_attachments", { messageIds }),
   openAttachment: (messageId: string, index: number, save: boolean) =>
     invoke<string>("open_attachment", { messageId, index, save }),

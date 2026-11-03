@@ -2,12 +2,19 @@ import clsx from "clsx";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
 import { useStore } from "../store";
 import { Kbd } from "./ui";
+import { isMobile } from "../lib/platform";
 
 export function Toasts() {
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
   return (
-    <div className="pointer-events-none fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2">
+    <div
+      className={clsx(
+        "pointer-events-none fixed left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2",
+        // Above the compose button and the reply bar.
+        isMobile ? "bottom-[calc(env(safe-area-inset-bottom)+88px)] w-[calc(100vw-24px)] [&>*]:w-full [&>*]:min-h-11 [&>*]:text-[14px]" : "bottom-5",
+      )}
+    >
       {toasts.map((t) => (
         <div
           key={t.id}

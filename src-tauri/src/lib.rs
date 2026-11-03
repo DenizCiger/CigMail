@@ -83,6 +83,7 @@ pub fn run() {
             commands::suggest_contacts,
             commands::open_attachment,
             commands::save_attachments,
+            commands::stage_attachment,
             commands::get_settings,
             commands::set_setting,
             commands::get_splits,

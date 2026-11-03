@@ -5,20 +5,22 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import DOMPurify from "dompurify";
-import { CornerDownLeft, MoreHorizontal, Paperclip, Sparkles, Trash2, X, Wand2 } from "lucide-react";
+import { CornerDownLeft, MoreHorizontal, Paperclip, Send, Sparkles, Trash2, X, Wand2 } from "lucide-react";
 import { useStore } from "../store";
-import { aiStream, api } from "../lib/api";
+import { aiStream, api, errorMessage } from "../lib/api";
+import { isMobile } from "../lib/platform";
+import { useBackLayer } from "../mobile/back";
 import { formatAddress, parseAddresses, textToHtml } from "../lib/format";
 import type { Address, Contact, Draft } from "../lib/types";
 import { Avatar, Button, IconButton, Kbd, Select, Spinner } from "./ui";
 
 // ------------------------------------------------------------------ recipients
 
-function isEmail(s: string) {
+export function isEmail(s: string) {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(s.trim());
 }
 
-function RecipientInput({
+export function RecipientInput({
   label,
   value,
   onChange,
@@ -125,7 +127,7 @@ function RecipientInput({
       </div>
       {trailing}
       {suggestions.length > 0 && (
-        <div className="absolute left-14 top-full z-30 mt-1 w-[360px] overflow-hidden rounded-lg border border-line bg-elev p-1 shadow-pop animate-in">
+        <div className="absolute left-14 top-full z-30 mt-1 w-[min(360px,calc(100vw-4.5rem))] overflow-hidden rounded-lg border border-line bg-elev p-1 shadow-pop animate-in">
           {suggestions.map((c, i) => (
             <button
               key={c.email}
@@ -154,7 +156,7 @@ function RecipientInput({
 const COMPOSE_CHIPS = ["Accept", "Decline politely", "Ask for more details", "Say thanks", "Propose a time to meet"];
 const REWRITE_CHIPS = ["Improve", "Shorten", "Make it friendlier", "More formal", "Fix spelling & grammar", "Translate to English", "Translate to German"];
 
-function AiAssist({
+export function AiAssist({
   editor,
   draft,
   onClose,
@@ -380,7 +382,9 @@ export function Composer() {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
-      Placeholder.configure({ placeholder: isReply ? "Write a reply…  (⌘J to write with AI)" : "Write your message…  (⌘J to write with AI)" }),
+      Placeholder.configure({
+        placeholder: `${isReply ? "Write a reply…" : "Write your message…"}${isMobile ? "" : "  (⌘J to write with AI)"}`,
+      }),
     ],
     content: initialHtml,
     autofocus: isReply || draft.mode === "forward" ? "start" : false,
@@ -437,8 +441,16 @@ export function Composer() {
     }
     closeComposer();
   };
+  // On phones the back button closes the composer and keeps the draft.
+  useBackLayer(isMobile, close);
 
+  const fileInput = useRef<HTMLInputElement>(null);
   const attach = async () => {
+    // The mobile picker hands out content URIs, so copy the files in via the webview instead.
+    if (isMobile) {
+      fileInput.current?.click();
+      return;
+    }
     const picked = await openDialog({ multiple: true, directory: false });
     if (!picked) return;
     const paths = Array.isArray(picked) ? picked : [picked];
@@ -466,6 +478,95 @@ export function Composer() {
     }
   };
 
+  const fields = (
+    <>
+        {accounts.length > 1 && (
+          <div className="flex h-9 items-center gap-2 border-b border-line px-4">
+            <span className="w-10 shrink-0 text-[13px] text-fg-3">From</span>
+            <Select
+              bare
+              value={draft.accountId}
+              onChange={(accountId) => update({ accountId })}
+              className="-ml-2.5 h-7 flex-1"
+              options={accounts.map((a) => ({
+                value: a.id,
+                label: `${formatAddress({ name: a.name, email: a.email })}${a.label ? `  ·  ${a.label}` : ""}`,
+              }))}
+            />
+            <span className="h-2 w-2 rounded-full" style={{ background: account?.color }} />
+          </div>
+        )}
+
+        <RecipientInput
+          label="To"
+          value={draft.to}
+          onChange={(to) => update({ to })}
+          autoFocus={!isReply && draft.mode !== "forward" ? true : draft.mode === "forward"}
+          trailing={
+            !showCc && (
+              <button onClick={() => setShowCc(true)} className="pt-[5px] text-xs text-fg-3 hover:text-fg">
+                Cc / Bcc
+              </button>
+            )
+          }
+        />
+        {showCc && (
+          <>
+            <RecipientInput label="Cc" value={draft.cc} onChange={(cc) => update({ cc })} />
+            <RecipientInput label="Bcc" value={draft.bcc} onChange={(bcc) => update({ bcc })} />
+          </>
+        )}
+        {!isReply && (
+          <div className="flex h-9 items-center gap-2 border-b border-line px-4">
+            <span className="w-10 shrink-0 text-[13px] text-fg-3">Subject</span>
+            <input
+              value={draft.subject}
+              onChange={(e) => update({ subject: e.target.value })}
+              className="h-7 flex-1 bg-transparent text-[13px] font-medium"
+            />
+          </div>
+        )}
+
+        <div className="cm-editor px-4 pb-2 pt-3" onClick={() => editor?.commands.focus()}>
+          <EditorContent editor={editor} />
+        </div>
+
+        {draft.quotedHtml && (
+          <div className="px-4 pb-2">
+            <button
+              onClick={() => setShowQuote(!showQuote)}
+              title={showQuote ? "Hide quoted text" : "Show quoted text"}
+              className="flex h-5 items-center rounded border border-line-strong px-1.5 text-fg-3 hover:text-fg"
+            >
+              <MoreHorizontal size={13} />
+            </button>
+            {showQuote && (
+              <div
+                className="mt-2 max-h-64 overflow-y-auto rounded-md border border-line p-3 text-xs text-fg-3 [&_img]:max-w-full"
+                dangerouslySetInnerHTML={{ __html: stripScripts(draft.quotedHtml) }}
+              />
+            )}
+          </div>
+        )}
+
+        {draft.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+            {draft.attachments.map((a, i) => (
+              <span key={a.path} className="flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-elev-2 pl-2 pr-1 text-xs">
+                <Paperclip size={12} className="text-fg-3" />
+                {a.path.split(/[\\/]/).pop()}
+                <button onClick={() => update({ attachments: draft.attachments.filter((_, j) => j !== i) })} className="p-0.5 text-fg-3 hover:text-fg">
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {aiOpen && editor && <AiAssist editor={editor} draft={draft} onClose={() => { setAiOpen(false); editor.commands.focus(); }} />}
+    </>
+  );
+
   const body = (
     <div
       ref={rootRef}
@@ -487,90 +588,7 @@ export function Composer() {
         </div>
       )}
 
-      {accounts.length > 1 && (
-        <div className="flex h-9 items-center gap-2 border-b border-line px-4">
-          <span className="w-10 shrink-0 text-[13px] text-fg-3">From</span>
-          <Select
-            bare
-            value={draft.accountId}
-            onChange={(accountId) => update({ accountId })}
-            className="-ml-2.5 h-7 flex-1"
-            options={accounts.map((a) => ({
-              value: a.id,
-              label: `${formatAddress({ name: a.name, email: a.email })}${a.label ? `  ·  ${a.label}` : ""}`,
-            }))}
-          />
-          <span className="h-2 w-2 rounded-full" style={{ background: account?.color }} />
-        </div>
-      )}
-
-      <RecipientInput
-        label="To"
-        value={draft.to}
-        onChange={(to) => update({ to })}
-        autoFocus={!isReply && draft.mode !== "forward" ? true : draft.mode === "forward"}
-        trailing={
-          !showCc && (
-            <button onClick={() => setShowCc(true)} className="pt-[5px] text-xs text-fg-3 hover:text-fg">
-              Cc / Bcc
-            </button>
-          )
-        }
-      />
-      {showCc && (
-        <>
-          <RecipientInput label="Cc" value={draft.cc} onChange={(cc) => update({ cc })} />
-          <RecipientInput label="Bcc" value={draft.bcc} onChange={(bcc) => update({ bcc })} />
-        </>
-      )}
-      {!isReply && (
-        <div className="flex h-9 items-center gap-2 border-b border-line px-4">
-          <span className="w-10 shrink-0 text-[13px] text-fg-3">Subject</span>
-          <input
-            value={draft.subject}
-            onChange={(e) => update({ subject: e.target.value })}
-            className="h-7 flex-1 bg-transparent text-[13px] font-medium"
-          />
-        </div>
-      )}
-
-      <div className="cm-editor px-4 pb-2 pt-3" onClick={() => editor?.commands.focus()}>
-        <EditorContent editor={editor} />
-      </div>
-
-      {draft.quotedHtml && (
-        <div className="px-4 pb-2">
-          <button
-            onClick={() => setShowQuote(!showQuote)}
-            title={showQuote ? "Hide quoted text" : "Show quoted text"}
-            className="flex h-5 items-center rounded border border-line-strong px-1.5 text-fg-3 hover:text-fg"
-          >
-            <MoreHorizontal size={13} />
-          </button>
-          {showQuote && (
-            <div
-              className="mt-2 max-h-64 overflow-y-auto rounded-md border border-line p-3 text-xs text-fg-3 [&_img]:max-w-full"
-              dangerouslySetInnerHTML={{ __html: stripScripts(draft.quotedHtml) }}
-            />
-          )}
-        </div>
-      )}
-
-      {draft.attachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-4 pb-2">
-          {draft.attachments.map((a, i) => (
-            <span key={a.path} className="flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-elev-2 pl-2 pr-1 text-xs">
-              <Paperclip size={12} className="text-fg-3" />
-              {a.path.split(/[\\/]/).pop()}
-              <button onClick={() => update({ attachments: draft.attachments.filter((_, j) => j !== i) })} className="p-0.5 text-fg-3 hover:text-fg">
-                <X size={11} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {aiOpen && editor && <AiAssist editor={editor} draft={draft} onClose={() => { setAiOpen(false); editor.commands.focus(); }} />}
+      {fields}
 
       <div className="flex items-center gap-1.5 border-t border-line px-3 py-2">
         <Button variant="primary" onClick={doSend} disabled={sending}>
@@ -594,6 +612,66 @@ export function Composer() {
     </div>
   );
 
+  if (isMobile) {
+    return (
+      <div data-composer onKeyDown={onKeyDown} className="fixed inset-0 z-40 flex flex-col bg-elev animate-slide-up">
+        <header className="flex h-14 shrink-0 items-center gap-0.5 border-b border-line px-1.5 [box-sizing:content-box] pt-[env(safe-area-inset-top)]">
+          <button aria-label="Close and save draft" onClick={close} className="flex h-11 w-11 items-center justify-center rounded-full text-fg-2 active:bg-active">
+            <X size={22} />
+          </button>
+          <span className="flex-1 truncate px-1 text-[17px] font-semibold">
+            {draft.mode === "forward" ? "Forward" : draft.mode === "new" || !draft.mode ? "New message" : "Reply"}
+          </span>
+          <button aria-label="Attach files" onClick={attach} className="flex h-11 w-11 items-center justify-center rounded-full text-fg-2 active:bg-active">
+            <Paperclip size={20} />
+          </button>
+          <button
+            aria-label="Write with AI"
+            onClick={() => setAiOpen((o) => !o)}
+            className={clsx("flex h-11 w-11 items-center justify-center rounded-full active:bg-active", aiOpen ? "bg-active text-accent" : "text-fg-2")}
+          >
+            <Sparkles size={20} />
+          </button>
+          <button
+            aria-label="Send"
+            onClick={doSend}
+            disabled={sending}
+            className="ml-1 mr-1 flex h-10 items-center gap-2 rounded-full bg-accent-strong px-4 text-[14px] font-medium text-white disabled:opacity-60"
+          >
+            {sending ? <Spinner size={14} className="text-white" /> : <Send size={16} />}
+            Send
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)] [&_.cm-editor_.ProseMirror]:min-h-[40vh] [&_.cm-editor_.ProseMirror]:text-[16px]">
+          {fields}
+          <div className="flex justify-center py-6">
+            <button onClick={discard} className="flex h-10 items-center gap-2 rounded-full px-4 text-[14px] text-fg-3 active:bg-active">
+              <Trash2 size={16} />
+              Discard draft
+            </button>
+          </div>
+        </div>
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={async (e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = "";
+            try {
+              const paths = await Promise.all(files.map(async (f) => ({ path: await api.stageAttachment(f) })));
+              setDraft((d) => ({ ...d, attachments: [...d.attachments, ...paths] }));
+              dirty.current = true;
+            } catch (err) {
+              toast(errorMessage(err), { kind: "error" });
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   if (composer.inline) return body;
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-6 animate-fade" onMouseDown={(e) => e.target === e.currentTarget && close()}>
@@ -602,7 +680,7 @@ export function Composer() {
   );
 }
 
-function stripScripts(html: string): string {
+export function stripScripts(html: string): string {
   const clean = DOMPurify.sanitize(html, { FORBID_TAGS: ["style", "script", "iframe", "form", "link", "meta"] });
   // Quoted mail is shown inside the app document, so keep remote content out.
   return clean.replace(/\ssrc="https?:[^"]*"/gi, "");

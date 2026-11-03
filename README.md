@@ -19,7 +19,11 @@ pnpm tauri dev
 
 Then follow [SETUP.md](SETUP.md) to register the Google / Microsoft OAuth apps. IMAP accounts work right away.
 
-`pnpm dev` runs the UI in a normal browser with sample data, which is handy for design work.
+`pnpm dev` runs the UI in a normal browser with sample data, which is handy for design work. Add `?mobile` to the URL to get the phone UI.
+
+## Android
+
+The Android app is the same Rust core (sync, SQLite cache, providers) with a touch UI on top: swipe right for done and swipe left to snooze, long-press to select, pull to refresh, and the back button closes the topmost screen. See [SETUP.md](SETUP.md#android) to build it.
 
 ## Layout
 
@@ -37,6 +41,7 @@ src
   store.ts       app state, optimistic actions, undo
   lib/commands.ts  command registry shared by hotkeys and ⌘K
   components/    Sidebar, ThreadList, ThreadView, Composer, CommandPalette, Settings, …
+  mobile/        phone shell: Inbox, Thread, Drawer, Sheets, back-button handling
 ```
 
 ## Tests

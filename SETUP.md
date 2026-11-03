@@ -51,6 +51,27 @@ Some universities only allow admin-approved apps. If you see *"Need admin approv
 
 > This connection is unofficial: it's how [openai-oauth](https://github.com/EvanZhouDev/openai-oauth) and the Codex CLI work. OpenAI may change or block it. The AI code sits behind one function (`Ai::stream` in `src-tauri/src/ai.rs`), so you can swap in an API key or another provider if needed.
 
+## Android
+
+You need the Android SDK and NDK. The easiest way to get them is Android Studio (SDK Manager → *SDK Tools* → check **NDK (Side by side)** and **Android SDK Command-line Tools**).
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+export NDK_HOME="$ANDROID_HOME/ndk/$(ls "$ANDROID_HOME/ndk" | tail -1)"
+export JAVA_HOME=/usr/lib/jvm/default   # JDK 17 or newer
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+pnpm tauri android init      # once: generates src-tauri/gen/android
+pnpm android:dev             # runs on a connected phone (USB debugging) or emulator
+pnpm android:build           # unsigned release APK under src-tauri/gen/android/app/build/outputs
+```
+
+Use the same OAuth apps as on desktop. Sign-in opens the phone's browser, which redirects back to the app on `127.0.0.1`, so keep CigMail open in the background until the browser says you can close it. A few things differ from desktop:
+
+- **Credentials** are stored in the app's private database, because Android has no Secret Service.
+- **Sync** runs while the app is open or recently backgrounded. Android may pause it after that until you open the app again.
+- **Attachments** you tap are saved instead of opened, in the Downloads folder Android gives the app.
+
 ## Where things are stored
 
 - Mail cache and settings: `~/.local/share/dev.ciger.cigmail/cigmail.db` (SQLite)

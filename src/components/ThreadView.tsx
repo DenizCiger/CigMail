@@ -198,7 +198,7 @@ function MessageCard({
   );
 }
 
-function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean }) {
+export function AiSummary({ detail, preview }: { detail: ThreadDetail; preview: boolean }) {
   const ai = useStore((s) => s.ai);
   const settings = useStore((s) => s.settings);
   const set = useStore((s) => s.set);

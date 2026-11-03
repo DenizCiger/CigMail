@@ -449,11 +449,23 @@ fn unique_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
     path
 }
 
+/// Where saved attachments go. Android hands out the app's own Downloads folder
+/// (visible over USB and in the Files app); fall back to app data if that fails.
+fn downloads_dir(app: &AppHandle) -> anyhow::Result<std::path::PathBuf> {
+    let dir = match app.path().download_dir() {
+        Ok(d) => d,
+        Err(_) if cfg!(mobile) => app.path().app_data_dir()?.join("Downloads"),
+        Err(e) => return Err(anyhow!("{e}")),
+    };
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
 /// Saves every (non-inline) attachment of the given messages to Downloads,
 /// downloading each raw message only once. Returns the saved paths.
 #[tauri::command]
 pub async fn save_attachments(app: AppHandle, state: State<'_, AppState>, message_ids: Vec<String>) -> CmdResult<Vec<String>> {
-    let dir = app.path().download_dir().map_err(|e| anyhow!("{e}"))?;
+    let dir = downloads_dir(&app)?;
     let mut saved = Vec::new();
     for id in message_ids {
         let msg = state.db.message(&id)?;
@@ -487,8 +499,10 @@ pub async fn open_attachment(
     let mut provider = Provider::new(&ctx)?;
     let raw = provider.fetch_raw(&ctx, &r).await?;
     let (name, _mime, bytes) = mime::extract_attachment(&raw, index)?;
+    // Phones have no "open with" for arbitrary paths; keep a copy in Downloads instead.
+    let save = save || cfg!(mobile);
     let path = if save {
-        unique_path(&app.path().download_dir().map_err(|e| anyhow!("{e}"))?, &name)
+        unique_path(&downloads_dir(&app)?, &name)
     } else {
         let d = std::env::temp_dir().join("cigmail");
         std::fs::create_dir_all(&d)?;
@@ -500,6 +514,29 @@ pub async fn open_attachment(
         app.opener().open_path(&p, None::<&str>).map_err(|e| anyhow!("could not open file: {e}"))?;
     }
     Ok(p)
+}
+
+/// Copies a file the user picked in the webview (the mobile file picker gives
+/// content, not a path) into the cache so it can be attached like any other
+/// file. The raw body is the file; the `x-file-name` header its name.
+#[tauri::command]
+pub fn stage_attachment(app: AppHandle, request: tauri::ipc::Request<'_>) -> CmdResult<String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(anyhow!("expected the file contents as a raw body").into());
+    };
+    let name = request
+        .headers()
+        .get("x-file-name")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| url::form_urlencoded::parse(format!("n={v}").as_bytes()).map(|(_, v)| v.into_owned()).next().unwrap_or_default())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "attachment".into());
+    // One folder per file keeps the original name without clashing.
+    let dir = app.path().app_cache_dir()?.join("attachments").join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(safe_file_name(&name));
+    std::fs::write(&path, bytes)?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 // ------------------------------------------------------------------ settings

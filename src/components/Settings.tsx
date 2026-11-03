@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { useEffect, useState } from "react";
 import {
+  ArrowLeft,
   ChevronRight,
   History,
   ArrowDown,
@@ -21,6 +22,8 @@ import { useStore } from "../store";
 import { api, errorMessage } from "../lib/api";
 import type { Account, AccountKind, ImapConfig, ModelInfo, Split } from "../lib/types";
 import { Button, Field, IconButton, Input, Modal, ProviderGlyph, Select, Spinner, Switch, focusables } from "./ui";
+import { isMobile } from "../lib/platform";
+import { useBackLayer } from "../mobile/back";
 
 const SECTIONS = [
   { id: "general", label: "General", icon: Settings2 },
@@ -33,6 +36,7 @@ const SECTIONS = [
 export function Settings() {
   const section = useStore((s) => s.settingsSection);
   const set = useStore((s) => s.set);
+  if (isMobile) return <MobileSettings />;
   if (!section) return null;
   const close = () => set({ settingsSection: null });
   return (
@@ -113,6 +117,59 @@ export function Settings() {
         </div>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Phones: a full-screen list of sections ("index"), each opening full-screen.
+ * Back steps out of a section to the list, then closes.
+ */
+function MobileSettings() {
+  const section = useStore((s) => s.settingsSection);
+  const set = useStore((s) => s.set);
+  const inSection = !!section && section !== "index";
+  useBackLayer(!!section, () => set({ settingsSection: null }));
+  useBackLayer(inSection, () => set({ settingsSection: "index" }));
+  if (!section) return null;
+  const current = SECTIONS.find((s) => s.id === section);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-elev text-[15px] animate-fade">
+      <header className="flex shrink-0 items-center gap-1 border-b border-line px-1.5 pt-[env(safe-area-inset-top)]">
+        <button
+          aria-label="Back"
+          onClick={() => set({ settingsSection: inSection ? "index" : null })}
+          className="flex h-11 w-11 items-center justify-center rounded-full text-fg-2 active:bg-active"
+        >
+          <ArrowLeft size={22} />
+        </button>
+        <span className="flex h-14 items-center text-[18px] font-semibold">{inSection ? current?.label : "Settings"}</span>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-[env(safe-area-inset-bottom)]">
+        {inSection ? (
+          <div className="px-4 py-5">
+            {section === "general" && <General />}
+            {section === "accounts" && <Accounts />}
+            {section === "splits" && <Splits />}
+            {section === "ai" && <AiSettings />}
+            {section === "connections" && <Connections />}
+          </div>
+        ) : (
+          <div className="flex flex-col p-2">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => set({ settingsSection: s.id })}
+                className="flex h-14 items-center gap-4 rounded-xl px-3 text-left active:bg-active"
+              >
+                <s.icon size={20} className="text-fg-3" />
+                <span className="flex-1">{s.label}</span>
+                <ChevronRight size={18} className="text-fg-4" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -254,12 +311,13 @@ function AccountCard({ a }: { a: Account }) {
 
   return (
     <div className="rounded-lg border border-line-strong">
-      <div className={clsx("group flex items-center gap-1 pr-2 transition-colors hover:bg-hover", open ? "rounded-t-lg" : "rounded-lg")}>
+      {/* On narrow screens the actions wrap below the name instead of squeezing it out. */}
+      <div className={clsx("group flex flex-wrap items-center gap-1 pr-2 transition-colors hover:bg-hover", open ? "rounded-t-lg" : "rounded-lg")}>
       <button
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         title={open ? "Collapse" : "Edit name, label, color and signature"}
-        className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left"
+        className="flex min-w-[14rem] flex-1 items-center gap-3 py-3 pl-4 text-left"
       >
         <ChevronRight size={14} className={clsx("-ml-1 shrink-0 text-fg-3 transition-transform group-hover:text-fg-2", open && "rotate-90")} />
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: a.color }} />
