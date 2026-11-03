@@ -184,8 +184,8 @@ function H({ title, desc }: { title: string; desc?: string }) {
 
 function Row({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-6 border-b border-line py-3.5">
-      <div className="flex-1">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line py-3.5">
+      <div className="min-w-[12rem] flex-1">
         <div className="text-[13px]">{label}</div>
         {desc && <div className="mt-0.5 text-xs text-fg-3">{desc}</div>}
       </div>
@@ -884,11 +884,12 @@ function AiSettings() {
   return (
     <>
       <H title="AI" desc="Thread summaries and writing help, powered by your ChatGPT subscription." />
-      <div className="mb-6 flex items-center gap-4 rounded-lg border border-line-strong p-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft">
+      {/* On narrow screens the buttons wrap below the text instead of squeezing it. */}
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-line-strong p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent-soft">
           <Sparkles size={18} className="text-accent" />
         </div>
-        <div className="flex-1">
+        <div className="min-w-[12rem] flex-1">
           <div className="text-[13px] font-medium">{ai?.connected ? "ChatGPT connected" : "Connect ChatGPT"}</div>
           <div className="text-xs text-fg-3">
             {ai?.connected
@@ -907,7 +908,7 @@ function AiSettings() {
             Disconnect
           </Button>
         ) : (
-          <>
+          <div className="ml-auto flex items-center gap-2">
             {busy && (
               <Button variant="ghost" onClick={() => api.cancelOAuth()}>
                 Cancel
@@ -916,7 +917,7 @@ function AiSettings() {
             <Button variant="primary" onClick={connect} disabled={busy}>
               {busy ? "Waiting for browser…" : "Connect"}
             </Button>
-          </>
+          </div>
         )}
       </div>
       {ai?.connected && (

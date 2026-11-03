@@ -99,7 +99,7 @@ impl Ai {
     }
 
     pub async fn login(&self, open: impl FnOnce(&str) -> Result<()>) -> Result<AiStatus> {
-        let tokens = oauth::authorize(&self.http, &config::codex(), open).await?;
+        let tokens = oauth::authorize(&config::codex(), open).await?;
         if account_id(&tokens).is_none() {
             bail!("this OpenAI account has no ChatGPT workspace");
         }

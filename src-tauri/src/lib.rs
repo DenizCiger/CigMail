@@ -18,14 +18,38 @@ use tauri::Manager;
 
 use commands::AppState;
 
+/// Every HTTP client starts here. reqwest checks certificates with the
+/// platform verifier, which on Android needs a JNI handshake first and panics
+/// without it; use the bundled Mozilla roots there instead (as IMAP/SMTP do).
+pub(crate) fn http_client() -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder().user_agent(concat!("CigMail/", env!("CARGO_PKG_VERSION")));
+    #[cfg(target_os = "android")]
+    let builder = {
+        let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+        let mut tls = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
+        // reqwest is built without HTTP/2 here, so don't let servers pick it.
+        tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+        builder.tls_backend_preconfigured(tls)
+    };
+    builder
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "cigmail_lib=info,warn,html5ever=error".into()),
-        )
-        .init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "cigmail_lib=info,warn,html5ever=error".into());
+    #[cfg(target_os = "android")]
+    {
+        use tracing_subscriber::layer::SubscriberExt as _;
+        use tracing_subscriber::util::SubscriberInitExt as _;
+        tracing_subscriber::registry().with(filter).with(paranoid_android::layer("cigmail")).init();
+    }
+    #[cfg(not(target_os = "android"))]
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // A panicking command task otherwise vanishes silently on Android (no
+    // stderr), leaving the UI waiting for a reply that never comes.
+    #[cfg(target_os = "android")]
+    std::panic::set_hook(Box::new(|info| tracing::error!("panic: {info}")));
     // Several dependencies pull in rustls; pick one crypto provider for all of them.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -38,8 +62,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db = db::Db::open(&dir.join("cigmail.db"))?;
             let secrets = secrets::Secrets::new(db.clone());
-            let http = reqwest::Client::builder()
-                .user_agent(concat!("CigMail/", env!("CARGO_PKG_VERSION")))
+            let http = http_client()
                 .connect_timeout(Duration::from_secs(15))
                 .timeout(Duration::from_secs(120))
                 .build()?;

@@ -103,7 +103,7 @@ pub async fn add_oauth_account(app: AppHandle, state: State<'_, AppState>, req: 
         AccountKind::Outlook => config::microsoft_graph(&state.db)?,
         AccountKind::Imap => return Err(anyhow!("use add_imap_account").into()),
     };
-    let tokens = oauth::authorize(&state.http, &client, open_browser(&app)).await?;
+    let tokens = oauth::authorize(&client, open_browser(&app)).await?;
     let (email, name) = identity(&state.http, req.kind, &tokens).await?;
 
     // Reconnecting an existing account just refreshes its tokens.
@@ -172,7 +172,7 @@ pub async fn add_imap_account(app: AppHandle, state: State<'_, AppState>, req: N
         }
         ImapAuth::MicrosoftOAuth => {
             let tokens =
-                oauth::authorize(&state.http, &config::microsoft_imap(&state.db)?, open_browser(&app)).await?;
+                oauth::authorize(&config::microsoft_imap(&state.db)?, open_browser(&app)).await?;
             if let Some(c) = tokens.id_token.as_deref().and_then(oauth::decode_jwt_claims) {
                 if email.is_empty() {
                     email = c["preferred_username"].as_str().or(c["email"].as_str()).unwrap_or("").to_string();
@@ -223,7 +223,7 @@ pub async fn reconnect_account(app: AppHandle, state: State<'_, AppState>, id: S
             } else {
                 config::microsoft_graph(&state.db)?
             };
-            let tokens = oauth::authorize(&state.http, &client, open_browser(&app)).await?;
+            let tokens = oauth::authorize(&client, open_browser(&app)).await?;
             let (email, _) = identity(&state.http, account.kind, &tokens).await?;
             if !email.eq_ignore_ascii_case(&account.email) {
                 return Err(anyhow!("you signed in as {email}, but this account is {}", account.email).into());
@@ -240,7 +240,7 @@ pub async fn reconnect_account(app: AppHandle, state: State<'_, AppState>, id: S
                 }
                 ImapAuth::MicrosoftOAuth => {
                     let tokens =
-                        oauth::authorize(&state.http, &config::microsoft_imap(&state.db)?, open_browser(&app)).await?;
+                        oauth::authorize(&config::microsoft_imap(&state.db)?, open_browser(&app)).await?;
                     state.secrets.set_json(&format!("oauth:{id}"), &tokens)?;
                 }
             }

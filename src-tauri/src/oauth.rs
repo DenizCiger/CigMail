@@ -128,7 +128,8 @@ async fn bind_loopback(redirect: &Redirect) -> Result<(Vec<TcpListener>, String,
 
 const PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><title>CigMail</title>
 <style>body{font-family:Inter,system-ui,sans-serif;background:#0d0e10;color:#e6e6e8;display:grid;place-items:center;height:100vh;margin:0}
-div{text-align:center}h1{font-weight:600;font-size:20px;margin:0 0 8px}p{color:#8a8f98;margin:0}</style></head>
+div{text-align:center;padding:0 24px}h1{font-weight:600;font-size:20px;margin:0 0 8px}p{color:#8a8f98;margin:0}
+a{display:inline-block;margin-top:24px;padding:12px 22px;border-radius:12px;background:#5e6ad2;color:#fff;text-decoration:none;font-weight:500}</style></head>
 <body><div><h1>{title}</h1><p>{body}</p></div></body></html>"#;
 
 async fn respond(sock: &mut tokio::net::TcpStream, status: &str, title: &str, body: &str) {
@@ -154,6 +155,7 @@ async fn wait_for_code(listeners: &[TcpListener], path: &str, state: &str) -> Re
             .next()
             .and_then(|l| l.split_whitespace().nth(1))
             .unwrap_or("/");
+        tracing::info!("sign-in: loopback request for {}", target.split('?').next().unwrap_or(target));
         let Ok(url) = Url::parse(&format!("http://localhost{target}")) else {
             respond(&mut sock, "400 Bad Request", "Bad request", "").await;
             continue;
@@ -177,16 +179,22 @@ async fn wait_for_code(listeners: &[TcpListener], path: &str, state: &str) -> Re
             respond(&mut sock, "400 Bad Request", "Sign-in failed", "State mismatch.").await;
             bail!("OAuth state mismatch");
         }
-        respond(
-            &mut sock,
-            "200 OK",
-            "You're signed in",
-            "You can close this tab and return to CigMail.",
-        )
-        .await;
+        respond(&mut sock, "200 OK", "You're signed in", SIGNED_IN).await;
         return Ok(code.clone());
     }
 }
+
+#[cfg(desktop)]
+const SIGNED_IN: &str = "You can close this tab and return to CigMail.";
+/// Android pauses the app's network while the browser is in front, so send the
+/// user straight back; the launcher intent brings the running app forward.
+/// Android pauses the app while the browser is in front, so send the user
+/// straight back: the page tries on its own, and the button works if the
+/// browser wants a tap first. `singleTask` brings the running app forward.
+#[cfg(mobile)]
+const SIGNED_IN: &str = "Head back to CigMail to finish.<br>\
+<a href=\"intent://open#Intent;scheme=cigmail;package=dev.ciger.cigmail;end\">Open CigMail</a>\
+<script>location.href='intent://open#Intent;scheme=cigmail;package=dev.ciger.cigmail;end'</script>";
 
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
@@ -194,7 +202,6 @@ fn html_escape(s: &str) -> String {
 
 /// Runs the full browser flow. `open` is called with the authorization URL.
 pub async fn authorize(
-    http: &reqwest::Client,
     client: &OAuthClient,
     open: impl FnOnce(&str) -> Result<()>,
 ) -> Result<Tokens> {
@@ -220,6 +227,7 @@ pub async fn authorize(
         }
     }
     open(url.as_str())?;
+    tracing::info!("sign-in: opened the browser, waiting for the redirect to {redirect_uri}");
 
     let code = tokio::select! {
         r = tokio::time::timeout(Duration::from_secs(300), wait_for_code(&listeners, &path, &state)) => {
@@ -228,6 +236,7 @@ pub async fn authorize(
         _ = CANCEL.notified() => bail!("sign-in cancelled"),
     };
     drop(listeners);
+    tracing::info!("sign-in: got the authorization code, exchanging it for tokens");
 
     let mut form = vec![
         ("grant_type", "authorization_code".to_string()),
@@ -239,7 +248,36 @@ pub async fn authorize(
     if let Some(secret) = &client.client_secret {
         form.push(("client_secret", secret.clone()));
     }
-    let resp = http.post(&client.token_url).form(&form).send().await?;
+    // On Android the app has no network until the user switches back from the
+    // browser, so keep retrying for as long as the code is valid. Each attempt
+    // gets a fresh client and a hard time limit: a connection begun while the
+    // network was blocked can stall well past the shared client's timeouts.
+    let started = tokio::time::Instant::now();
+    let deadline = started + Duration::from_secs(300);
+    let mut attempt = 0u32;
+    let resp = loop {
+        attempt += 1;
+        let once = crate::http_client()
+            .connect_timeout(Duration::from_secs(8))
+            .timeout(Duration::from_secs(20))
+            .pool_max_idle_per_host(0)
+            .build()?;
+        let err = match tokio::time::timeout(Duration::from_secs(25), once.post(&client.token_url).form(&form).send()).await {
+            Ok(Ok(r)) => break r,
+            Ok(Err(e)) if e.status().is_none() => anyhow::Error::new(e),
+            Ok(Err(e)) => return Err(e.into()),
+            Err(_) => anyhow!("no answer within 25s"),
+        };
+        if tokio::time::Instant::now() >= deadline {
+            return Err(err.context("could not reach the sign-in server"));
+        }
+        tracing::warn!("sign-in: token request attempt {attempt} failed after {:?}: {err:#}", started.elapsed());
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+            _ = CANCEL.notified() => bail!("sign-in cancelled"),
+        }
+    };
+    tracing::info!("sign-in: token endpoint answered {} after {attempt} attempt(s)", resp.status());
     parse_token_response(resp, None).await
 }
 
