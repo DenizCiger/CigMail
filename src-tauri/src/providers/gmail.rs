@@ -9,7 +9,7 @@ use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Ctx, api, b64url_decode, http_status};
+use super::{Ctx, LATEST_PER_FOLDER, api, b64url_decode, http_status};
 use crate::{
     db::{Flags, MsgRef, ThreadAction},
     mime,
@@ -23,6 +23,9 @@ const MAX_INITIAL: usize = 5000;
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     history_id: Option<String>,
+    /// The newest `LATEST_PER_FOLDER` messages per folder have been fetched once.
+    #[serde(default)]
+    backfilled: bool,
 }
 
 #[derive(Deserialize)]
@@ -93,7 +96,29 @@ impl Gmail {
             },
         }
         ctx.db.set_sync_state(&ctx.account.id, &st)?;
+        if !st.backfilled {
+            self.backfill(ctx).await?;
+            st.backfilled = true;
+            ctx.db.set_sync_state(&ctx.account.id, &st)?;
+        }
         Ok(())
+    }
+
+    /// The listing above only covers the sync window; also fetch the newest
+    /// messages in the inbox, in Sent and overall, however old they are.
+    async fn backfill(&self, ctx: &Ctx) -> Result<()> {
+        let mut ids: Vec<String> = Vec::new();
+        for filter in ["&labelIds=INBOX", "&labelIds=SENT", ""] {
+            let v = self
+                .get_json(ctx, &format!("{API}/messages?maxResults={LATEST_PER_FOLDER}{filter}"))
+                .await?;
+            for id in v["messages"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()) {
+                if !ids.iter().any(|i| i == id) && !ctx.db.message_exists(&ctx.account.id, id)? {
+                    ids.push(id.to_string());
+                }
+            }
+        }
+        self.download(ctx, ids).await
     }
 
     async fn full_sync(&self, ctx: &Ctx, st: &mut State) -> Result<()> {
@@ -134,6 +159,8 @@ impl Gmail {
             return Ok(());
         }
         let mut done = 0u32;
+        let mut failed = 0u32;
+        let mut first_err: Option<anyhow::Error> = None;
         let mut results = stream::iter(ids)
             .map(|id| async move { self.fetch_and_store(ctx, &id).await })
             .buffer_unordered(8);
@@ -143,12 +170,18 @@ impl Gmail {
                 if e.is::<crate::error::AuthExpired>() {
                     return Err(e);
                 }
+                failed += 1;
+                first_err.get_or_insert(e);
             }
             done += 1;
             if done % 20 == 0 || done == total {
                 ctx.emit_progress(done, total);
                 ctx.emit_changed();
             }
+        }
+        // The caller keeps its history id, so these are listed again next sync.
+        if let Some(e) = first_err {
+            anyhow::bail!("{failed} of {total} messages could not be downloaded: {e:#}");
         }
         Ok(())
     }
@@ -272,7 +305,14 @@ impl Gmail {
                     self.post_json(ctx, &format!("{API}/messages/{}/untrash", r.remote_id), &json!({}))
                         .await?;
                 }
-                self.post_json(ctx, &url, &modify(&["INBOX"], &["SPAM", "TRASH"])).await?
+                // Restored sent copies keep their SENT label and stay out of the inbox.
+                let inbox: Vec<&str> = refs.iter().filter(|r| r.flags.inbox).map(|r| r.remote_id.as_str()).collect();
+                self.post_json(ctx, &url, &modify(&[], &["SPAM", "TRASH"])).await?;
+                if !inbox.is_empty() {
+                    self.post_json(ctx, &url, &json!({ "ids": inbox, "addLabelIds": ["INBOX"] })).await?
+                } else {
+                    Value::Null
+                }
             }
             ThreadAction::Trash => {
                 for r in refs {

@@ -793,9 +793,12 @@ impl Db {
             for tid in thread_ids {
                 let (cond, set) = match action {
                     ThreadAction::Archive => ("in_inbox = 1", "in_inbox = 0"),
+                    // Trashing takes your sent copies along, so restoring brings
+                    // them back too (to Sent, not the inbox).
                     ThreadAction::Inbox => (
-                        "(in_inbox = 0 OR in_trash = 1 OR in_spam = 1) AND in_sent = 0 AND in_drafts = 0",
-                        "in_inbox = 1, in_trash = 0, in_spam = 0",
+                        "((in_inbox = 0 OR in_trash = 1 OR in_spam = 1) AND in_sent = 0 AND in_drafts = 0)
+                         OR (in_sent = 1 AND in_trash = 1)",
+                        "in_inbox = (in_sent = 0), in_trash = 0, in_spam = 0",
                     ),
                     ThreadAction::Trash => ("in_trash = 0 AND in_drafts = 0", "in_trash = 1, in_inbox = 0"),
                     ThreadAction::Read => ("is_read = 0", "is_read = 1"),
@@ -1500,6 +1503,23 @@ mod tests {
         assert_eq!(t.messages.len(), 1);
         assert!(t.messages[0].in_sent);
         assert_eq!(t.thread.message_count, 1);
+
+        // Trashing takes your reply along; restoring puts it back in Sent, not the inbox.
+        db.upsert_message(&record("INBOX/2", "t4", "ann@x.com", "Lunch?", "noon?", 400, "primary")).unwrap();
+        let mut reply = record("Sent/2", "t4", "me@x.com", "Re: Lunch?", "sure", 410, "primary");
+        reply.flags = Flags { sent: true, read: true, ..Default::default() };
+        db.upsert_message(&reply).unwrap();
+        let ops = db.apply_thread_action(&["a1:t4".into()], ThreadAction::Trash).unwrap();
+        assert_eq!(ops[0].1.len(), 2);
+        assert!(db.list_threads(&filter("sent", None)).unwrap().iter().all(|t| t.id != "a1:t4"));
+        let ops = db.apply_thread_action(&["a1:t4".into()], ThreadAction::Inbox).unwrap();
+        assert_eq!(ops[0].1.len(), 2);
+        let refs = db.msg_refs(&ops[0].1).unwrap();
+        let sent = refs.iter().find(|r| r.remote_id == "Sent/2").unwrap();
+        assert!(sent.flags.sent && !sent.flags.inbox && !sent.flags.trash);
+        assert!(refs.iter().any(|r| r.remote_id == "INBOX/2" && r.flags.inbox && !r.flags.trash));
+        assert!(db.list_threads(&filter("sent", None)).unwrap().iter().any(|t| t.id == "a1:t4"));
+        assert!(db.list_threads(&filter("inbox", None)).unwrap().iter().any(|t| t.id == "a1:t4"));
         std::fs::remove_dir_all(dir).ok();
     }
 }

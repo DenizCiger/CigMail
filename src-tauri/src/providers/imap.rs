@@ -20,7 +20,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use super::{Ctx, oauth_token};
+use super::{Ctx, LATEST_PER_FOLDER, oauth_token};
 use crate::{
     config,
     db::{Flags, MsgRef, ThreadAction},
@@ -52,6 +52,12 @@ struct Folders {
 struct BoxState {
     uid_validity: u32,
     last_uid: u32,
+    /// Fetched but not stored (parse or database error); fetched again next sync.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retry: Vec<u32>,
+    /// The newest `LATEST_PER_FOLDER` messages have been fetched once.
+    #[serde(default)]
+    backfilled: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -65,6 +71,8 @@ enum Role {
     Inbox,
     Sent,
     Archive,
+    Trash,
+    Spam,
 }
 
 pub struct Imap {
@@ -174,8 +182,8 @@ fn role_flags(role: Role, seen: bool, flagged: bool, draft: bool) -> Flags {
         inbox: role == Role::Inbox,
         sent: role == Role::Sent,
         drafts: draft,
-        trash: false,
-        spam: false,
+        trash: role == Role::Trash,
+        spam: role == Role::Spam,
     }
 }
 
@@ -336,16 +344,41 @@ impl Imap {
         if let Some(a) = &folders.archive {
             targets.push((a.clone(), Role::Archive));
         }
+        // Without these, anything trashed or marked as spam would vanish from
+        // the app: moves delete the local copy and wait for the destination
+        // folder to bring it back.
+        if let Some(t) = &folders.trash {
+            targets.push((t.clone(), Role::Trash));
+        }
+        if let Some(j) = &folders.spam {
+            targets.push((j.clone(), Role::Spam));
+        }
+        let mut first_err = None;
         for (folder, role) in targets {
             let mut bs = st.boxes.get(&folder).cloned().unwrap_or_default();
-            self.sync_folder(ctx, &folder, role, &mut bs).await?;
+            let failed = self.sync_folder(ctx, &folder, role, &mut bs).await?;
             st.boxes.insert(folder, bs);
             ctx.db.set_sync_state(&ctx.account.id, &st)?;
+            if first_err.is_none() {
+                first_err = failed;
+            }
         }
-        Ok(())
+        // Report messages that couldn't be stored; they're retried next sync.
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
-    async fn sync_folder(&mut self, ctx: &Ctx, folder: &str, role: Role, bs: &mut BoxState) -> Result<()> {
+    /// Returns the first error from messages that were fetched but couldn't be
+    /// stored; those are kept in `bs.retry`.
+    async fn sync_folder(
+        &mut self,
+        ctx: &Ctx,
+        folder: &str,
+        role: Role,
+        bs: &mut BoxState,
+    ) -> Result<Option<anyhow::Error>> {
         let acc = ctx.account.id.clone();
         let days = ctx.sync_days();
         let s = self.session(ctx).await?;
@@ -360,7 +393,7 @@ impl Imap {
             for (_, r) in ctx.db.folder_uids(&acc, folder)? {
                 ctx.db.delete_message(&acc, &r.remote_id)?;
             }
-            *bs = BoxState { uid_validity: validity, last_uid: 0 };
+            *bs = BoxState { uid_validity: validity, ..Default::default() };
         }
 
         // 1. New messages.
@@ -374,12 +407,26 @@ impl Imap {
                 .filter(|u| *u > bs.last_uid)
                 .collect()
         };
+        new_uids.extend(std::mem::take(&mut bs.retry));
+        if !bs.backfilled {
+            let mut all: Vec<u32> = s.uid_search("ALL").await?.into_iter().collect();
+            all.sort_unstable();
+            let local = ctx.db.folder_uids(&acc, folder)?;
+            new_uids.extend(
+                all.iter()
+                    .rev()
+                    .take(LATEST_PER_FOLDER)
+                    .filter(|u| !local.contains_key(u)),
+            );
+        }
         new_uids.sort_unstable();
+        new_uids.dedup();
         if new_uids.len() > MAX_INITIAL_PER_FOLDER {
             new_uids.drain(..new_uids.len() - MAX_INITIAL_PER_FOLDER);
         }
         let total = new_uids.len() as u32;
         let mut done = 0u32;
+        let mut first_err: Option<anyhow::Error> = None;
         for chunk in new_uids.chunks(FETCH_CHUNK) {
             let fetches: Vec<Fetch> = {
                 let stream = s
@@ -388,7 +435,13 @@ impl Imap {
                 stream.try_collect().await?
             };
             for f in &fetches {
-                let (Some(uid), Some(body)) = (f.uid, f.body()) else { continue };
+                let Some(uid) = f.uid else { continue };
+                let Some(body) = f.body() else {
+                    tracing::warn!("imap: {folder} UID {uid} came back without a body");
+                    first_err.get_or_insert_with(|| anyhow!("{folder} UID {uid} came back without a body"));
+                    bs.retry.push(uid);
+                    continue;
+                };
                 let (seen, flagged, draft) = fetch_flags(f);
                 let rid = remote_id(folder, validity, uid);
                 if let Err(e) = ctx.ingest(
@@ -403,6 +456,8 @@ impl Imap {
                     None,
                 ) {
                     tracing::warn!("imap: could not store {rid}: {e:#}");
+                    first_err.get_or_insert_with(|| e.context(format!("storing {folder} UID {uid}")));
+                    bs.retry.push(uid);
                 }
                 bs.last_uid = bs.last_uid.max(uid);
             }
@@ -413,6 +468,7 @@ impl Imap {
         if let Some(max) = new_uids.last() {
             bs.last_uid = bs.last_uid.max(*max);
         }
+        bs.backfilled = true;
 
         // 2. Flag changes and deletions for what we already have.
         let local = ctx.db.folder_uids(&acc, folder)?;
@@ -450,7 +506,7 @@ impl Imap {
                 ctx.emit_changed();
             }
         }
-        Ok(())
+        Ok(first_err)
     }
 
     async fn ensure_folder(&mut self, ctx: &Ctx, which: &str) -> Result<String> {
@@ -479,12 +535,6 @@ impl Imap {
     }
 
     pub async fn apply(&mut self, ctx: &Ctx, action: ThreadAction, refs: &[MsgRef]) -> Result<()> {
-        let mut by_folder: HashMap<String, Vec<&MsgRef>> = HashMap::new();
-        for r in refs {
-            if let (Some(f), Some(_)) = (&r.folder, r.imap_uid) {
-                by_folder.entry(f.clone()).or_default().push(r);
-            }
-        }
         let target = match action {
             ThreadAction::Archive => Some(self.ensure_folder(ctx, "archive").await?),
             ThreadAction::Trash => Some(self.ensure_folder(ctx, "trash").await?),
@@ -492,7 +542,23 @@ impl Imap {
             ThreadAction::Spam => Some(self.ensure_folder(ctx, "spam").await?),
             _ => None,
         };
-        for (folder, msgs) in by_folder {
+        // Restored sent copies go back to Sent, not the inbox.
+        let sent_target = if action == ThreadAction::Inbox && refs.iter().any(|r| r.flags.sent && !r.flags.inbox) {
+            Some(self.ensure_folder(ctx, "sent").await?)
+        } else {
+            None
+        };
+        let mut by_folder: HashMap<(String, Option<String>), Vec<&MsgRef>> = HashMap::new();
+        for r in refs {
+            if let (Some(f), Some(_)) = (&r.folder, r.imap_uid) {
+                let dest = match &sent_target {
+                    Some(s) if r.flags.sent && !r.flags.inbox => Some(s.clone()),
+                    _ => target.clone(),
+                };
+                by_folder.entry((f.clone(), dest)).or_default().push(r);
+            }
+        }
+        for ((folder, target), msgs) in by_folder {
             let uids: Vec<u32> = msgs.iter().filter_map(|m| m.imap_uid).collect();
             let set = uid_set(&uids);
             let has_move = self.has_move;

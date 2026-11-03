@@ -22,6 +22,10 @@ use crate::{
     secrets::Secrets,
 };
 
+/// Each synced folder also gets its newest messages this many, however old,
+/// so a mailbox that's been quiet for longer than the sync window isn't empty.
+pub const LATEST_PER_FOLDER: usize = 50;
+
 /// A remote mutation waiting in the ops queue.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Op {

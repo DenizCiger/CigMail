@@ -1,15 +1,15 @@
 //! Microsoft Graph (Outlook.com and Microsoft 365). Uses per-folder delta
 //! queries for sync and immutable ids so messages keep their id when moved.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Ctx, api, http_status};
+use super::{Ctx, LATEST_PER_FOLDER, api, http_status};
 use crate::{
     db::{Flags, MsgRef, ThreadAction},
     mime,
@@ -29,6 +29,9 @@ struct State {
     folders: HashMap<String, String>,
     /// well-known name -> deltaLink
     delta: HashMap<String, String>,
+    /// Folders whose newest `LATEST_PER_FOLDER` messages have been fetched once.
+    #[serde(default)]
+    backfilled: HashSet<String>,
 }
 
 pub struct Graph {
@@ -125,20 +128,27 @@ impl Graph {
     pub async fn sync(&mut self, ctx: &Ctx) -> Result<()> {
         let mut st: State = ctx.db.sync_state(&ctx.account.id)?;
         self.ensure_folders(ctx, &mut st).await?;
+        // One folder failing shouldn't keep the others from syncing.
+        let mut first_err = None;
         for wk in SYNCED {
             let Some(folder_id) = st.folders.get(wk).cloned() else { continue };
-            match self.sync_folder(ctx, &mut st, wk, &folder_id).await {
-                Ok(()) => {}
+            let r = match self.sync_folder(ctx, &mut st, wk, &folder_id).await {
                 // Delta token expired: restart this folder from scratch.
                 Err(e) if matches!(http_status(&e), Some(410) | Some(400)) && st.delta.contains_key(wk) => {
                     st.delta.remove(wk);
-                    self.sync_folder(ctx, &mut st, wk, &folder_id).await?;
+                    self.sync_folder(ctx, &mut st, wk, &folder_id).await
                 }
-                Err(e) => return Err(e),
-            }
+                r => r,
+            };
             ctx.db.set_sync_state(&ctx.account.id, &st)?;
+            if let Err(e) = r {
+                if e.is::<crate::error::AuthExpired>() {
+                    return Err(e);
+                }
+                first_err.get_or_insert(e);
+            }
         }
-        Ok(())
+        first_err.map_or(Ok(()), Err)
     }
 
     async fn sync_folder(&self, ctx: &Ctx, st: &mut State, wk: &str, folder_id: &str) -> Result<()> {
@@ -154,7 +164,7 @@ impl Graph {
         };
         let mut new_items: Vec<Item> = Vec::new();
         let mut changed = false;
-        loop {
+        let delta_link = loop {
             let v = self.get_json(ctx, &url).await?;
             for raw in v["value"].as_array().into_iter().flatten() {
                 let Ok(item) = serde_json::from_value::<Item>(raw.clone()) else { continue };
@@ -186,17 +196,34 @@ impl Graph {
                 url = next.to_string();
                 continue;
             }
-            if let Some(delta) = v["@odata.deltaLink"].as_str() {
-                st.delta.insert(wk.to_string(), delta.to_string());
-            }
-            break;
-        }
+            break v["@odata.deltaLink"].as_str().map(str::to_string);
+        };
         if changed {
             ctx.emit_changed();
+        }
+        // The delta above only covers the sync window.
+        let backfill = !st.backfilled.contains(wk);
+        if backfill {
+            let v = self
+                .get_json(
+                    ctx,
+                    &format!(
+                        "{API}/mailFolders/{wk}/messages?$top={LATEST_PER_FOLDER}&$select={SELECT}&$orderby=receivedDateTime%20desc"
+                    ),
+                )
+                .await?;
+            for raw in v["value"].as_array().into_iter().flatten() {
+                let Ok(item) = serde_json::from_value::<Item>(raw.clone()) else { continue };
+                if !new_items.iter().any(|i| i.id == item.id) && !ctx.db.message_exists(&ctx.account.id, &item.id)? {
+                    new_items.push(item);
+                }
+            }
         }
 
         let total = new_items.len() as u32;
         let mut done = 0;
+        let mut failed = 0u32;
+        let mut first_err: Option<anyhow::Error> = None;
         let st_ref = &*st;
         let mut results = stream::iter(new_items)
             .map(|item| async move {
@@ -229,12 +256,26 @@ impl Graph {
                 if e.is::<crate::error::AuthExpired>() {
                     return Err(e);
                 }
+                failed += 1;
+                first_err.get_or_insert(e);
             }
             done += 1;
             if done % 20 == 0 || done == total {
                 ctx.emit_progress(done, total);
                 ctx.emit_changed();
             }
+        }
+        drop(results);
+        // Keep the old delta link until every message is stored, so the ones
+        // that failed are listed (and fetched) again on the next sync.
+        if let Some(e) = first_err {
+            bail!("{failed} of {total} messages in {wk} could not be downloaded: {e:#}");
+        }
+        if let Some(link) = delta_link {
+            st.delta.insert(wk.to_string(), link);
+        }
+        if backfill {
+            st.backfilled.insert(wk.to_string());
         }
         Ok(())
     }
@@ -258,6 +299,8 @@ impl Graph {
         let results: Vec<Result<()>> = stream::iter(refs.iter().cloned())
             .map(|r: MsgRef| {
                 let patch = patch.clone();
+                // Restored sent copies go back to Sent Items, not the inbox.
+                let dest = if dest == Some("inbox") && r.flags.sent && !r.flags.inbox { Some("sentitems") } else { dest };
                 async move {
                     let url = format!("{API}/messages/{}", r.remote_id);
                     if let Some(p) = patch {
