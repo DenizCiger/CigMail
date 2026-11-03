@@ -255,6 +255,19 @@ impl Db {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.execute_batch(SCHEMA).context("creating schema")?;
+        let mut conn = conn;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < 1 {
+            // Thread rows from before copies of the same message were counted once.
+            let tx = conn.transaction()?;
+            let ids: Vec<String> =
+                tx.prepare("SELECT id FROM threads")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            for id in ids {
+                recompute_thread(&tx, &id)?;
+            }
+            tx.execute_batch("PRAGMA user_version = 1")?;
+            tx.commit()?;
+        }
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
 
@@ -738,9 +751,24 @@ impl Db {
                 .optional()?
                 .context("thread not found")?;
             let mut st = c.prepare("SELECT * FROM messages WHERE thread_id = ? ORDER BY date ASC")?;
-            let messages = st
-                .query_map([id], message_from_row)?
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut messages: Vec<Message> = Vec::new();
+            for m in st.query_map([id], message_from_row)? {
+                let m = m?;
+                // Mail you send to yourself is stored twice, as the delivered copy
+                // and the one filed in Sent. Show it once.
+                let dup = m
+                    .message_id
+                    .as_ref()
+                    .and_then(|mid| messages.iter_mut().find(|p| p.message_id.as_ref() == Some(mid)));
+                match dup {
+                    Some(prev) => {
+                        prev.is_read &= m.is_read;
+                        prev.is_starred |= m.is_starred;
+                        prev.in_sent |= m.in_sent;
+                    }
+                    None => messages.push(m),
+                }
+            }
             Ok(ThreadDetail { thread, messages })
         })
     }
@@ -1239,6 +1267,7 @@ fn bump_contacts(c: &Connection, m: &MessageRecord) -> Result<()> {
 fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
     struct M {
         account_id: String,
+        message_id: Option<String>,
         subject: String,
         snippet: String,
         date: i64,
@@ -1255,7 +1284,7 @@ fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
     }
     let mut st = c.prepare_cached(
         "SELECT account_id, subject, snippet, date, from_name, from_email, is_read, is_starred,
-                in_inbox, in_sent, in_drafts, in_trash, in_spam, has_attachments, category
+                in_inbox, in_sent, in_drafts, in_trash, in_spam, has_attachments, category, message_id
          FROM messages WHERE thread_id = ? ORDER BY date ASC",
     )?;
     let msgs: Vec<M> = st
@@ -1275,6 +1304,7 @@ fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
                 spam: r.get(12)?,
                 attachments: r.get(13)?,
                 category: r.get(14)?,
+                message_id: r.get(15)?,
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -1305,6 +1335,12 @@ fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
     if participants.len() > 4 {
         participants.drain(..participants.len() - 4);
     }
+    // Copies of the same message (sent to yourself) count once.
+    let mut ids = std::collections::HashSet::new();
+    let message_count = visible
+        .iter()
+        .filter(|m| m.message_id.as_ref().is_none_or(|id| ids.insert(id.as_str())))
+        .count() as i64;
     let unread = visible.iter().filter(|m| !m.read && !m.sent).count() as i64;
     // If you've replied, the conversation is important regardless of what the
     // first message looked like.
@@ -1337,7 +1373,7 @@ fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
         last.snippet,
         last.date,
         to_json(&participants),
-        visible.len() as i64,
+        message_count,
         unread,
         msgs.iter().any(|m| m.starred && !m.trash),
         msgs.iter().any(|m| m.inbox && !m.trash),
@@ -1451,6 +1487,19 @@ mod tests {
         db.delete_message("a1", "m3").unwrap();
         assert!(db.list_threads(&filter("snoozed", None)).unwrap().is_empty());
         assert_eq!(db.suggest_contacts("ann@", 5).unwrap()[0].email, "ann@x.com");
+
+        // Mail to yourself: the delivered copy and the Sent copy show as one.
+        let mut delivered = record("INBOX/1", "t3", "me@x.com", "Note", "hi", 300, "primary");
+        delivered.message_id = Some("self@x".into());
+        let mut filed = record("Sent/1", "t3", "me@x.com", "Note", "hi", 300, "primary");
+        filed.message_id = Some("self@x".into());
+        filed.flags = Flags { sent: true, read: true, ..Default::default() };
+        db.upsert_message(&delivered).unwrap();
+        db.upsert_message(&filed).unwrap();
+        let t = db.thread("a1:t3").unwrap();
+        assert_eq!(t.messages.len(), 1);
+        assert!(t.messages[0].in_sent);
+        assert_eq!(t.thread.message_count, 1);
         std::fs::remove_dir_all(dir).ok();
     }
 }
