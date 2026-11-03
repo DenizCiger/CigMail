@@ -17,6 +17,17 @@ pnpm install
 pnpm tauri dev
 ```
 
+To build the Linux desktop app and refresh the local Noctalia launcher entry:
+
+```bash
+pnpm desktop:build
+```
+
+This builds Tauri bundles, then installs the generated AppImage to
+`~/.local/bin/cigmail.AppImage` and updates
+`~/.local/share/applications/cigmail.desktop`.
+
+
 Then follow [SETUP.md](SETUP.md) to register the Google / Microsoft OAuth apps. IMAP accounts work right away.
 
 `pnpm dev` runs the UI in a normal browser with sample data, which is handy for design work. Add `?mobile` to the URL to get the phone UI.

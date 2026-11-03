@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "desktop:build": "tauri build && bash scripts/install-desktop-app.sh",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build --apk"
   },
