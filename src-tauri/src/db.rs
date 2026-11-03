@@ -89,7 +89,8 @@ CREATE TABLE IF NOT EXISTS threads (
     in_trash        INTEGER NOT NULL DEFAULT 0,
     in_spam         INTEGER NOT NULL DEFAULT 0,
     has_attachments INTEGER NOT NULL DEFAULT 0,
-    category        TEXT NOT NULL DEFAULT 'primary'
+    category        TEXT NOT NULL DEFAULT 'primary',
+    has_received    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS threads_date ON threads(last_date DESC);
 CREATE INDEX IF NOT EXISTS threads_inbox ON threads(in_inbox, last_date DESC);
@@ -266,6 +267,26 @@ impl Db {
                 recompute_thread(&tx, &id)?;
             }
             tx.execute_batch("PRAGMA user_version = 1")?;
+            tx.commit()?;
+        }
+        if version < 2 {
+            // Threads learn whether they hold mail you received, and stop
+            // counting trashed sent copies as being in Sent.
+            let tx = conn.transaction()?;
+            let has: bool = tx.query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('threads') WHERE name = 'has_received'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has {
+                tx.execute_batch("ALTER TABLE threads ADD COLUMN has_received INTEGER NOT NULL DEFAULT 0")?;
+            }
+            let ids: Vec<String> =
+                tx.prepare("SELECT id FROM threads")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            for id in ids {
+                recompute_thread(&tx, &id)?;
+            }
+            tx.execute_batch("PRAGMA user_version = 2")?;
             tx.commit()?;
         }
         Ok(Db(Arc::new(Mutex::new(conn))))
@@ -1211,6 +1232,7 @@ fn thread_from_row(r: &Row) -> rusqlite::Result<ThreadSummary> {
         unread: r.get::<_, i64>("unread")? > 0,
         starred: r.get("starred")?,
         in_inbox: r.get("in_inbox")?,
+        has_received: r.get("has_received")?,
         has_attachments: r.get("has_attachments")?,
         category: r.get("category")?,
         snoozed_until: r.get("snoozed_until")?,
@@ -1360,14 +1382,16 @@ fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
 
     c.prepare_cached(
         "INSERT INTO threads(id, account_id, subject, snippet, last_date, participants, message_count,
-            unread, starred, in_inbox, in_sent, in_drafts, in_trash, in_spam, has_attachments, category)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+            unread, starred, in_inbox, in_sent, in_drafts, in_trash, in_spam, has_attachments, category,
+            has_received)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
          ON CONFLICT(id) DO UPDATE SET subject = excluded.subject, snippet = excluded.snippet,
             last_date = excluded.last_date, participants = excluded.participants,
             message_count = excluded.message_count, unread = excluded.unread,
             starred = excluded.starred, in_inbox = excluded.in_inbox, in_sent = excluded.in_sent,
             in_drafts = excluded.in_drafts, in_trash = excluded.in_trash, in_spam = excluded.in_spam,
-            has_attachments = excluded.has_attachments, category = excluded.category",
+            has_attachments = excluded.has_attachments, category = excluded.category,
+            has_received = excluded.has_received",
     )?
     .execute(params![
         thread_id,
@@ -1380,12 +1404,14 @@ fn recompute_thread(c: &Connection, thread_id: &str) -> Result<()> {
         unread,
         msgs.iter().any(|m| m.starred && !m.trash),
         msgs.iter().any(|m| m.inbox && !m.trash),
-        msgs.iter().any(|m| m.sent),
+        // A sent copy sitting in the trash doesn't put the thread in Sent.
+        msgs.iter().any(|m| m.sent && !m.trash),
         msgs.iter().any(|m| m.drafts),
         msgs.iter().all(|m| m.trash),
         msgs.iter().all(|m| m.spam),
         msgs.iter().any(|m| m.attachments),
         category,
+        msgs.iter().any(|m| !m.sent && !m.drafts && !m.trash),
     ])?;
     Ok(())
 }
@@ -1520,6 +1546,20 @@ mod tests {
         assert!(refs.iter().any(|r| r.remote_id == "INBOX/2" && r.flags.inbox && !r.flags.trash));
         assert!(db.list_threads(&filter("sent", None)).unwrap().iter().any(|t| t.id == "a1:t4"));
         assert!(db.list_threads(&filter("inbox", None)).unwrap().iter().any(|t| t.id == "a1:t4"));
+        assert!(db.thread("a1:t4").unwrap().thread.has_received);
+
+        // A thread of only your own mail has nothing to move to the inbox.
+        let mut own = record("Sent/3", "t5", "me@x.com", "Hello", "hi", 500, "primary");
+        own.flags = Flags { sent: true, read: true, ..Default::default() };
+        db.upsert_message(&own).unwrap();
+        assert!(!db.thread("a1:t5").unwrap().thread.has_received);
+        assert!(db.apply_thread_action(&["a1:t5".into()], ThreadAction::Inbox).unwrap().is_empty());
+
+        // A reply pulls a trashed thread back out, but your trashed copy stays out of Sent.
+        db.apply_thread_action(&["a1:t5".into()], ThreadAction::Trash).unwrap();
+        db.upsert_message(&record("INBOX/3", "t5", "ann@x.com", "Re: Hello", "hey", 510, "primary")).unwrap();
+        assert!(db.list_threads(&filter("inbox", None)).unwrap().iter().any(|t| t.id == "a1:t5"));
+        assert!(db.list_threads(&filter("sent", None)).unwrap().iter().all(|t| t.id != "a1:t5"));
         std::fs::remove_dir_all(dir).ok();
     }
 }

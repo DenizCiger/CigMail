@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Archive, Clock, Inbox, Paperclip, Star, Sparkles, Trash2 } from "lucide-react";
-import { useStore } from "../store";
+import { canRestore, useStore } from "../store";
 import { displayName, relativeFuture, shortDate } from "../lib/format";
 import type { ThreadSummary } from "../lib/types";
 import { openThreadMenu } from "../lib/commands";
@@ -44,7 +44,7 @@ function Row({
   const showAi = useStore((s) => s.settings.ai_list_summaries !== "false");
 
   const preview = showAi && t.aiSummary ? t.aiSummary.split("\n")[0] : t.snippet;
-  const restorable = !t.inInbox || view === "trash" || view === "spam";
+  const restorable = canRestore(t, view);
 
   const date =
     view === "snoozed" && t.snoozedUntil ? (
@@ -72,9 +72,11 @@ function Row({
           <Inbox size={14} />
         </HoverAction>
       ) : (
-        <HoverAction label="Done (E)" onClick={() => act("archive", [t.id])}>
-          <Archive size={14} />
-        </HoverAction>
+        t.inInbox && (
+          <HoverAction label="Done (E)" onClick={() => act("archive", [t.id])}>
+            <Archive size={14} />
+          </HoverAction>
+        )
       )}
       <HoverAction label="Snooze (H)" onClick={() => set({ snoozeFor: [t.id] })}>
         <Clock size={14} />

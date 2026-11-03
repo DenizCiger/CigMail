@@ -20,7 +20,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useStore } from "../store";
+import { canRestore, useStore } from "../store";
 import { api } from "../lib/api";
 import { accountLabel, displayName, relativeFuture, shortDate } from "../lib/format";
 import type { Draft, ThreadSummary, View } from "../lib/types";
@@ -172,7 +172,7 @@ function ThreadRow({ t, selected, selecting, multiAccount, me }: { t: ThreadSumm
   const view = useStore((s) => s.view);
   const showAi = useStore((s) => s.settings.ai_list_summaries !== "false");
   const { openThread, toggleSelect, act, set } = useStore.getState();
-  const restorable = !t.inInbox || view === "trash" || view === "spam";
+  const restorable = canRestore(t, view);
   const names = [...new Set(t.participants.map((p) => displayName(p, me)))];
   const who = names.length <= 2 ? names.join(", ") : `${names[0]} … ${names[names.length - 1]}`;
   const preview = showAi && t.aiSummary ? t.aiSummary.split("\n")[0] : t.snippet;
@@ -184,7 +184,9 @@ function ThreadRow({ t, selected, selecting, multiAccount, me }: { t: ThreadSumm
       right={
         restorable
           ? { icon: <InboxIcon size={22} />, color: "var(--accent-strong)", run: () => act("inbox", [t.id]) }
-          : { icon: <Archive size={22} />, color: "var(--success)", run: () => act("archive", [t.id]) }
+          : t.inInbox
+            ? { icon: <Archive size={22} />, color: "var(--success)", run: () => act("archive", [t.id]) }
+            : undefined
       }
       left={view === "snoozed" || view === "trash" || view === "sent" || view === "drafts" ? undefined : { icon: <Clock size={22} />, color: "var(--warning)", run: () => set({ snoozeFor: [t.id] }) }}
     >
@@ -441,7 +443,8 @@ function SelectionBar() {
   const [more, setMore] = useState<SheetAction[] | null>(null);
   const ids = [...selected];
   const picked = threads.filter((t) => selected.has(t.id));
-  const restorable = view === "trash" || view === "spam" || picked.every((t) => !t.inInbox);
+  const restorable = picked.length > 0 && picked.every((t) => canRestore(t, view));
+  const doneable = picked.some((t) => t.inInbox);
   const anyUnread = picked.some((t) => t.unread);
   const allStarred = picked.length > 0 && picked.every((t) => t.starred);
 
@@ -456,9 +459,11 @@ function SelectionBar() {
           <InboxIcon size={21} />
         </BarButton>
       ) : (
-        <BarButton label="Done" onClick={() => act("archive", ids)}>
-          <Archive size={21} />
-        </BarButton>
+        doneable && (
+          <BarButton label="Done" onClick={() => act("archive", ids)}>
+            <Archive size={21} />
+          </BarButton>
+        )
       )}
       <BarButton label="Snooze" onClick={() => set({ snoozeFor: ids })}>
         <Clock size={21} />

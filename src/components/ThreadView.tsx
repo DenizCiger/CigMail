@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useStore } from "../store";
+import { canRestore, useStore } from "../store";
 import { aiStream, api, errorMessage } from "../lib/api";
 import { isMobile } from "../lib/platform";
 import { displayName, formatBytes, longDate, shortDate } from "../lib/format";
@@ -482,14 +482,16 @@ export function ThreadView({ id, preview = false }: { id: string; preview?: bool
             <div className="mx-1 h-4 w-px bg-line-strong" />
           </>
         )}
-        {t?.inInbox === false || view === "trash" || view === "spam" ? (
+        {canRestore(t, view) ? (
           <IconButton label={view === "trash" ? "Restore from trash" : view === "spam" ? "Not spam" : "Move to inbox"} shortcut={["E"]} onClick={() => act("inbox", [id])}>
             <Inbox size={15} />
           </IconButton>
         ) : (
-          <IconButton label="Done" shortcut={["E"]} onClick={() => act("archive", [id])}>
-            <Archive size={15} />
-          </IconButton>
+          t?.inInbox !== false && (
+            <IconButton label="Done" shortcut={["E"]} onClick={() => act("archive", [id])}>
+              <Archive size={15} />
+            </IconButton>
+          )
         )}
         <IconButton label="Snooze" shortcut={["H"]} onClick={() => set({ snoozeFor: [id] })}>
           <Clock size={15} />

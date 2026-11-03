@@ -118,6 +118,8 @@ pub struct ThreadSummary {
     pub unread: bool,
     pub starred: bool,
     pub in_inbox: bool,
+    /// Holds mail you received (outside the trash), as opposed to only your own.
+    pub has_received: bool,
     pub has_attachments: bool,
     pub category: String,
     pub snoozed_until: Option<i64>,

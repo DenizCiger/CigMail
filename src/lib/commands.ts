@@ -32,7 +32,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api } from "./api";
-import { useStore, type MenuItem } from "../store";
+import { canRestore as canRestoreThread, useStore, type MenuItem } from "../store";
 import type { View } from "./types";
 
 export interface Command {
@@ -65,7 +65,7 @@ function targetThreads() {
 const inTrashOrSpam = () => s().view === "trash" || s().view === "spam";
 /** "Mark done" only makes sense for threads that are still in the inbox. */
 const canDone = () => !inTrashOrSpam() && targetThreads().some((t) => t.inInbox);
-const canRestore = () => hasTarget() && (inTrashOrSpam() || targetThreads().some((t) => !t.inInbox));
+const canRestore = () => hasTarget() && targetThreads().some((t) => canRestoreThread(t, s().view));
 
 /** E toggles: done when in the inbox, back to the inbox otherwise (like Superhuman). */
 function toggleDone() {

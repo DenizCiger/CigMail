@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useStore } from "../store";
+import { canRestore, useStore } from "../store";
 import { api, errorMessage } from "../lib/api";
 import { displayName, formatBytes, longDate, shortDate } from "../lib/format";
 import type { Message, ThreadDetail } from "../lib/types";
@@ -159,7 +159,7 @@ export function ThreadScreen({ id }: { id: string }) {
   const t = detail?.thread ?? threads.find((x) => x.id === id);
   const account = accounts.find((a) => a.id === t?.accountId);
   const latest = detail?.messages.filter((m) => !m.isDraft).slice(-1)[0];
-  const restorable = t?.inInbox === false || view === "trash" || view === "spam";
+  const restorable = canRestore(t, view);
   const unsubscribe = [...(detail?.messages ?? [])]
     .reverse()
     .map((m) => m.listUnsubscribe?.match(/<(https?:[^>]+)>/)?.[1])
@@ -189,9 +189,11 @@ export function ThreadScreen({ id }: { id: string }) {
               <Inbox size={21} />
             </BarButton>
           ) : (
-            <BarButton label="Done" onClick={() => act("archive", [id])}>
-              <Archive size={21} />
-            </BarButton>
+            t?.inInbox !== false && (
+              <BarButton label="Done" onClick={() => act("archive", [id])}>
+                <Archive size={21} />
+              </BarButton>
+            )
           )}
           <BarButton label="Snooze" onClick={() => set({ snoozeFor: [id] })}>
             <Clock size={21} />

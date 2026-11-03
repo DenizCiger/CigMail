@@ -38,6 +38,7 @@ export interface ThreadSummary {
   unread: boolean;
   starred: boolean;
   inInbox: boolean;
+  hasReceived: boolean;
   hasAttachments: boolean;
   category: string;
   snoozedUntil: number | null;

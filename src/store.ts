@@ -684,3 +684,9 @@ export function accountById(id: string | null | undefined): Account | undefined 
 export function myEmails(): string[] {
   return useStore.getState().accounts.map((a) => a.email);
 }
+
+/** Whether "move to inbox" would bring anything back. Your own messages stay
+ *  in Sent, so a thread of only those has nothing to restore outside the trash. */
+export function canRestore(t: ThreadSummary | undefined, view: View): boolean {
+  return view === "trash" || view === "spam" || (!!t && !t.inInbox && t.hasReceived);
+}
