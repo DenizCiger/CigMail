@@ -257,6 +257,16 @@ impl Db {
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         conn.execute_batch(SCHEMA).context("creating schema")?;
         let mut conn = conn;
+        // Databases created before this column existed keep their old table,
+        // and `recompute_thread` below writes it, so add it first.
+        let has: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('threads') WHERE name = 'has_received'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has {
+            conn.execute_batch("ALTER TABLE threads ADD COLUMN has_received INTEGER NOT NULL DEFAULT 0")?;
+        }
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version < 1 {
             // Thread rows from before copies of the same message were counted once.
@@ -273,14 +283,6 @@ impl Db {
             // Threads learn whether they hold mail you received, and stop
             // counting trashed sent copies as being in Sent.
             let tx = conn.transaction()?;
-            let has: bool = tx.query_row(
-                "SELECT COUNT(*) > 0 FROM pragma_table_info('threads') WHERE name = 'has_received'",
-                [],
-                |r| r.get(0),
-            )?;
-            if !has {
-                tx.execute_batch("ALTER TABLE threads ADD COLUMN has_received INTEGER NOT NULL DEFAULT 0")?;
-            }
             let ids: Vec<String> =
                 tx.prepare("SELECT id FROM threads")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
             for id in ids {
