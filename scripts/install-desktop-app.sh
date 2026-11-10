@@ -10,12 +10,19 @@ if [[ -z "$appimage" ]]; then
 fi
 
 install -Dm755 "$appimage" "$HOME/.local/bin/cigmail.AppImage"
+for size in 32x32 128x128; do
+  install -Dm644 "$repo_root/src-tauri/icons/$size.png" "$HOME/.local/share/icons/hicolor/$size/apps/cigmail.png"
+done
+install -Dm644 "$repo_root/src-tauri/icons/128x128@2x.png" "$HOME/.local/share/icons/hicolor/256x256/apps/cigmail.png"
+install -Dm644 "$repo_root/src-tauri/icons/icon.png" "$HOME/.local/share/icons/hicolor/512x512/apps/cigmail.png"
+install -Dm644 "$repo_root/src-tauri/icons/icon.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/cigmail.svg"
 install -d "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/cigmail.desktop" <<EOF
 [Desktop Entry]
 Name=CigMail
 Comment=Fast, keyboard-first unified email
 Exec=$HOME/.local/bin/cigmail.AppImage
+Icon=cigmail
 Terminal=false
 Type=Application
 Categories=Network;Email;Office;
