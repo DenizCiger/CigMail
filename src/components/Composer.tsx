@@ -36,6 +36,7 @@ export function RecipientInput({
   const [text, setText] = useState("");
   const [suggestions, setSuggestions] = useState<Contact[]>([]);
   const [active, setActive] = useState(0);
+  const [shown, setShown] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -76,15 +77,22 @@ export function RecipientInput({
           <span
             key={`${a.email}-${i}`}
             title={a.email}
+            onClick={(e) => {
+              // Tap a named chip to see which address it resolved to (no hover on touch).
+              if (!a.name) return;
+              e.stopPropagation();
+              setShown((s) => (s === i ? null : i));
+            }}
             className={clsx(
-              "flex h-6 items-center gap-1 rounded-md border pl-2 pr-1 text-xs",
+              "flex h-6 min-w-0 max-w-full items-center gap-1 rounded-md border pl-2 pr-1 text-xs",
               isEmail(a.email) ? "border-line-strong bg-elev-2" : "border-danger/60 bg-danger/10 text-danger",
             )}
           >
-            {a.name || a.email}
+            <span className="min-w-0 truncate">{a.name && shown === i ? formatAddress(a) : a.name || a.email}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                setShown(null);
                 onChange(value.filter((_, j) => j !== i));
               }}
               className="rounded p-0.5 text-fg-3 hover:text-fg"

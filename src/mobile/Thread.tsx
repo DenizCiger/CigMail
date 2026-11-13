@@ -4,6 +4,7 @@ import {
   Archive,
   ArrowLeft,
   Clock,
+  Copy,
   Download,
   FileIcon,
   Forward,
@@ -33,6 +34,8 @@ import { EmailFrame } from "../components/EmailFrame";
 import { AiSummary } from "../components/ThreadView";
 import { ActionSheet, type SheetAction } from "./Sheets";
 import { BarButton } from "./Inbox";
+import { AddressChip, MessageDetails, RecipientsLine, selectingText } from "../components/People";
+import { writeText } from "../lib/clipboard";
 
 function Attachments({ m }: { m: Message }) {
   const toast = useStore((s) => s.toast);
@@ -71,9 +74,26 @@ function Attachments({ m }: { m: Message }) {
 }
 
 function MessageCard({ m, expanded, onToggle, me }: { m: Message; expanded: boolean; onToggle: () => void; me: string[] }) {
+  const [details, setDetails] = useState(false);
+  const [actions, setActions] = useState<SheetAction[] | null>(null);
+  // Android fires contextmenu on long-press: the touch version of the desktop right-click menu.
+  const onLongPress = (e: React.MouseEvent) => {
+    if (selectingText()) return;
+    e.preventDefault();
+    const { reply, toast } = useStore.getState();
+    setActions([
+      { label: "Reply to this message", icon: Reply, run: () => reply("reply", m.id, false) },
+      { label: "Reply all", icon: ReplyAll, run: () => reply("replyAll", m.id, false) },
+      { label: "Forward this message", icon: Forward, run: () => reply("forward", m.id, false) },
+      { label: `Copy ${m.from.email}`, icon: Copy, run: () => writeText(m.from.email).then(() => toast("Copied")) },
+    ]);
+  };
+  const sheet = <ActionSheet actions={actions} onClose={() => setActions(null)} title={`${displayName(m.from, me)} · ${shortDate(m.date)}`} />;
   if (!expanded) {
     return (
-      <button onClick={onToggle} className="flex w-full items-center gap-3 border-b border-line px-4 py-3 text-left active:bg-hover">
+      <>
+      {sheet}
+      <button onClick={onToggle} onContextMenu={onLongPress} className="flex w-full items-center gap-3 border-b border-line px-4 py-3 text-left active:bg-hover">
         <Avatar address={m.from} size={32} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
@@ -84,24 +104,30 @@ function MessageCard({ m, expanded, onToggle, me }: { m: Message; expanded: bool
           <span className="block truncate text-[13.5px] text-fg-3">{m.snippet}</span>
         </span>
       </button>
+      </>
     );
   }
-  const to = [...m.to, ...m.cc];
   return (
     <article className="border-b border-line px-4 pb-5 pt-4">
-      <header className="mb-3 flex items-start gap-3" onClick={onToggle}>
+      {sheet}
+      <header className="mb-3 flex items-start gap-3" onClick={() => !selectingText() && onToggle()} onContextMenu={onLongPress}>
         <Avatar address={m.from} size={36} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{displayName(m.from, me)}</span>
+            <span className="min-w-0 flex-1">
+              <AddressChip a={m.from} me={me} className="text-[15px] font-semibold" />
+            </span>
             <span className="shrink-0 text-[12px] tabular-nums text-fg-3" title={longDate(m.date)}>
               {shortDate(m.date)}
             </span>
           </div>
-          <div className="truncate text-[12.5px] text-fg-3">
-            {m.from.email}
-            {to.length > 0 && <> · to {to.map((a) => displayName(a, me)).join(", ")}</>}
+          <div className="flex">
+            <span className="selectable min-w-0 truncate text-[12.5px] text-fg-3" onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
+              {m.from.email}
+            </span>
           </div>
+          <RecipientsLine m={m} me={me} open={details} onToggle={() => setDetails(!details)} className="text-[12.5px]" />
+          {details && <MessageDetails m={m} me={me} />}
         </div>
       </header>
       {/* EmailFrame pulls itself out by the paper's padding; this leaves an 8px margin. */}

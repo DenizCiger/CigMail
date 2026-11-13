@@ -74,7 +74,7 @@ function messagesFor(t: ThreadSummary): Message[] {
       subject: t.subject,
       from,
       to: [mine ? p : { name: acc.name, email: acc.email }],
-      cc: [],
+      cc: i === 0 && n > 1 ? [{ name: "Horn - Tanz auf dich zu", email: "info@tanzschule-horn.example" }, { name: null, email: "office@example.com" }] : [],
       bcc: [],
       replyTo: [],
       date: t.lastDate - (n - 1 - i) * 5 * H,

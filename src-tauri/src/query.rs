@@ -3,7 +3,11 @@
 //! ```text
 //! from:alice to:bob subject:invoice account:school is:unread is:starred
 //! has:attachment category:newsletter -category:primary in:inbox "exact phrase" words
+//! from:alice OR to:alice
 //! ```
+//!
+//! Terms are ANDed; an uppercase `OR` between two terms joins them instead, and
+//! binds tighter than the implicit AND (`a OR b c` means `(a OR b) AND c`).
 //!
 //! Every term compiles to a condition on the `threads t` row; free text goes
 //! through the FTS5 index.
@@ -22,6 +26,7 @@ pub enum Term {
     Category(String),
     Text(String),
     Not(Box<Term>),
+    Or(Vec<Term>),
 }
 
 const KEYS: &[&str] = &["from", "to", "cc", "subject", "account", "is", "has", "in", "category", "cat"];
@@ -41,7 +46,13 @@ pub fn parse(q: &str) -> Vec<Term> {
         }
         tokens.push(t);
     }
+    // Set by an `OR` between two terms: the next term joins the previous one.
+    let mut pending_or = false;
     for token in tokens {
+        if token == "OR" && !terms.is_empty() {
+            pending_or = true;
+            continue;
+        }
         let (neg, tok) = match token.strip_prefix('-') {
             Some(rest) if !rest.is_empty() => (true, rest.to_string()),
             _ => (false, token),
@@ -63,7 +74,19 @@ pub fn parse(q: &str) -> Vec<Term> {
             }
             _ => Term::Text(tok.trim_matches('"').to_string()),
         };
-        terms.push(if neg { Term::Not(Box::new(term)) } else { term });
+        let term = if neg { Term::Not(Box::new(term)) } else { term };
+        if std::mem::take(&mut pending_or) {
+            match terms.pop() {
+                Some(Term::Or(mut alts)) => {
+                    alts.push(term);
+                    terms.push(Term::Or(alts));
+                }
+                Some(prev) => terms.push(Term::Or(vec![prev, term])),
+                None => terms.push(term),
+            }
+        } else {
+            terms.push(term);
+        }
     }
     terms
 }
@@ -174,6 +197,22 @@ fn term_sql(term: &Term, vals: &mut Vec<Value>) -> Option<String> {
             let s = term_sql(inner, vals)?;
             format!("NOT ({s})")
         }
+        Term::Or(alts) => {
+            // A term we can't compile is ignored (matches everything), which makes
+            // the whole OR match everything: drop it and any values it pushed.
+            let start = vals.len();
+            let mut parts = Vec::with_capacity(alts.len());
+            for alt in alts {
+                match term_sql(alt, vals) {
+                    Some(s) => parts.push(format!("({s})")),
+                    None => {
+                        vals.truncate(start);
+                        return None;
+                    }
+                }
+            }
+            format!("({})", parts.join(" OR "))
+        }
     })
 }
 
@@ -205,6 +244,35 @@ mod tests {
     fn accepts_space_after_operator() {
         assert_eq!(parse("from: alice is: unread"), vec![Term::From("alice".into()), Term::Is("unread".into())]);
         assert_eq!(parse("-from: bob"), vec![Term::Not(Box::new(Term::From("bob".into())))]);
+    }
+
+    #[test]
+    fn parses_or() {
+        assert_eq!(
+            parse("from:alice OR to:alice is:unread"),
+            vec![
+                Term::Or(vec![Term::From("alice".into()), Term::To("alice".into())]),
+                Term::Is("unread".into()),
+            ]
+        );
+        assert_eq!(
+            parse("a OR b OR -c"),
+            vec![Term::Or(vec![Term::Text("a".into()), Term::Text("b".into()), Term::Not(Box::new(Term::Text("c".into())))])]
+        );
+        // Lowercase "or" is a word; a leading or trailing OR has nothing to join.
+        assert_eq!(parse("this or that"), vec![Term::Text("this".into()), Term::Text("or".into()), Term::Text("that".into())]);
+        assert_eq!(parse("OR x OR"), vec![Term::Text("OR".into()), Term::Text("x".into())]);
+    }
+
+    #[test]
+    fn or_sql_keeps_values_in_order() {
+        let (sql, vals) = to_sql(&parse("from:alice OR to:bob subject:hi"));
+        assert_eq!(sql.matches('?').count(), vals.len());
+        assert!(sql.starts_with("((EXISTS"));
+        assert!(sql.contains(") OR (EXISTS"));
+        // An uncompilable alternative drops the whole OR, values included.
+        let (sql, vals) = to_sql(&parse("from:alice OR is:bogus"));
+        assert_eq!((sql.as_str(), vals.len()), ("", 0));
     }
 
     #[test]

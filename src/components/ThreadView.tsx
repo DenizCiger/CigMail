@@ -35,16 +35,7 @@ import { EmailFrame } from "./EmailFrame";
 import { writeText } from "../lib/clipboard";
 import { emailIsDark, toggleEmailTheme } from "../lib/commands";
 import { Composer } from "./Composer";
-
-function Recipients({ m, me }: { m: Message; me: string[] }) {
-  const list = [...m.to, ...m.cc];
-  if (!list.length) return null;
-  return (
-    <span className="truncate text-fg-3">
-      to {list.map((a) => displayName(a, me)).join(", ")}
-    </span>
-  );
-}
+import { AddressChip, MessageDetails, RecipientsLine, selectingText } from "./People";
 
 /** Saves all attachments of these messages to Downloads, with a toast to reveal them. */
 async function saveAll(messageIds: string[]) {
@@ -140,6 +131,7 @@ function MessageCard({
   const reply = useStore((s) => s.reply);
   const openMenu = useStore((s) => s.openMenu);
   const toast = useStore((s) => s.toast);
+  const [details, setDetails] = useState(false);
   const onContextMenu = (e: React.MouseEvent) => {
     if (window.getSelection()?.toString()) return;
     e.preventDefault();
@@ -170,20 +162,25 @@ function MessageCard({
   }
   return (
     <article className="border-b border-line px-4 pb-6 pt-4 @xl:px-6">
-      <header className="mb-4 flex items-start gap-3" onContextMenu={onContextMenu}>
+      <header
+        className="mb-4 flex cursor-pointer items-start gap-3"
+        onClick={() => !selectingText() && onToggle()}
+        onContextMenu={onContextMenu}
+      >
         <Avatar address={m.from} size={32} />
-        <div className="min-w-0 flex-1 cursor-pointer" onClick={onToggle}>
-          <div className="flex items-baseline gap-2">
-            <span className="truncate text-[13.5px] font-semibold">{displayName(m.from, me)}</span>
-            <span className="hidden truncate text-xs text-fg-3 selectable @lg:inline">{m.from.email}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <AddressChip a={m.from} me={me} className="max-w-[65%] shrink-0 text-[13.5px] font-semibold" />
+            <span className="selectable min-w-0 cursor-text truncate text-xs text-fg-3" onClick={(e) => e.stopPropagation()}>
+              {m.from.email}
+            </span>
           </div>
-          <div className="flex gap-2 text-xs">
-            <Recipients m={m} me={me} />
-          </div>
+          <RecipientsLine m={m} me={me} open={details} onToggle={() => setDetails(!details)} className="text-xs" />
+          {details && <MessageDetails m={m} me={me} />}
         </div>
         <div className="flex shrink-0 items-center gap-2 text-xs text-fg-3">
           {unsubscribe && (
-            <button className="rounded px-1.5 py-0.5 hover:bg-hover hover:text-fg-2" onClick={() => openUrl(unsubscribe)}>
+            <button className="rounded px-1.5 py-0.5 hover:bg-hover hover:text-fg-2" onClick={(e) => { e.stopPropagation(); openUrl(unsubscribe); }}>
               Unsubscribe
             </button>
           )}
