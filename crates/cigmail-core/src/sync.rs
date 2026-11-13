@@ -5,11 +5,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_notification::NotificationExt;
-use tokio::sync::Notify;
+use tokio::{runtime::Handle, sync::Notify, task::JoinHandle};
 
 use crate::{
+    Host,
     db::{Db, ThreadAction},
     error::AuthExpired,
     models::{AccountKind, SyncStatus},
@@ -19,11 +18,13 @@ use crate::{
 
 struct Worker {
     wake: Arc<Notify>,
-    handle: tauri::async_runtime::JoinHandle<()>,
+    handle: JoinHandle<()>,
 }
 
 pub struct Engine {
-    pub app: AppHandle,
+    pub host: Arc<dyn Host>,
+    /// The runtime the workers live on; `start` is also called from threads outside it.
+    rt: Handle,
     pub db: Db,
     pub secrets: Secrets,
     pub http: reqwest::Client,
@@ -31,13 +32,13 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(app: AppHandle, db: Db, secrets: Secrets, http: reqwest::Client) -> Arc<Self> {
-        Arc::new(Engine { app, db, secrets, http, workers: Mutex::new(HashMap::new()) })
+    pub fn new(host: Arc<dyn Host>, rt: Handle, db: Db, secrets: Secrets, http: reqwest::Client) -> Arc<Self> {
+        Arc::new(Engine { host, rt, db, secrets, http, workers: Mutex::new(HashMap::new()) })
     }
 
     pub fn ctx(&self, account_id: &str) -> Result<Ctx> {
         Ok(Ctx {
-            app: self.app.clone(),
+            host: self.host.clone(),
             db: self.db.clone(),
             secrets: self.secrets.clone(),
             http: self.http.clone(),
@@ -51,9 +52,9 @@ impl Engine {
             self.start(&a.id);
         }
         let me = self.clone();
-        tauri::async_runtime::spawn(async move { me.outbox_loop().await });
+        self.rt.spawn(async move { me.outbox_loop().await });
         let me = self.clone();
-        tauri::async_runtime::spawn(async move { me.snooze_loop().await });
+        self.rt.spawn(async move { me.snooze_loop().await });
         Ok(())
     }
 
@@ -63,7 +64,7 @@ impl Engine {
         let me = self.clone();
         let id = account_id.to_string();
         let w = wake.clone();
-        let handle = tauri::async_runtime::spawn(async move { me.worker(id, w).await });
+        let handle = self.rt.spawn(async move { me.worker(id, w).await });
         self.workers
             .lock()
             .insert(account_id.to_string(), Worker { wake, handle });
@@ -88,9 +89,9 @@ impl Engine {
     }
 
     fn status(&self, account_id: &str, state: &str, message: Option<String>) {
-        let _ = self.app.emit(
+        self.host.emit(
             "sync:status",
-            SyncStatus { account_id: account_id.into(), state: state.into(), message, progress: None },
+            serde_json::json!(SyncStatus { account_id: account_id.into(), state: state.into(), message, progress: None }),
         );
     }
 
@@ -101,7 +102,7 @@ impl Engine {
         for (account_id, _) in &groups {
             self.wake(account_id);
         }
-        let _ = self.app.emit("mail:changed", "local");
+        self.host.emit("mail:changed", serde_json::json!("local"));
         Ok(())
     }
 
@@ -158,7 +159,7 @@ impl Engine {
                         // Give up, and tell the user: the next sync will show
                         // the server's state again, which looks like an undo.
                         self.db.finish_op(op_id)?;
-                        let _ = self.app.emit(
+                        self.host.emit(
                             "ops:failed",
                             serde_json::json!({ "account": ctx.account.email, "action": op.action, "error": format!("{e:#}") }),
                         );
@@ -211,7 +212,7 @@ impl Engine {
         } else {
             (format!("{} new emails", new.len()), new.iter().map(|t| t.subject.clone()).collect::<Vec<_>>().join(" · "))
         };
-        let _ = self.app.notification().builder().title(title).body(body).show();
+        self.host.notify(&title, &body);
     }
 
     async fn outbox_loop(self: Arc<Self>) {
@@ -226,7 +227,7 @@ impl Engine {
             };
             for (id, draft) in due {
                 let me = self.clone();
-                tauri::async_runtime::spawn(async move {
+                self.rt.spawn(async move {
                     let result = async {
                         let ctx = me.ctx(&draft.account_id)?;
                         let mut p = Provider::new(&ctx)?;
@@ -239,14 +240,14 @@ impl Engine {
                             if let Some(did) = &draft.id {
                                 let _ = me.db.delete_draft(did);
                             }
-                            let _ = me.app.emit("outbox:sent", &id);
+                            me.host.emit("outbox:sent", serde_json::json!(id));
                             me.wake(&draft.account_id);
                         }
                         Err(e) => {
                             let msg = format!("{e:#}");
                             tracing::warn!("send failed: {msg}");
                             let _ = me.db.finish_outgoing(&id, Some(&msg));
-                            let _ = me.app.emit("outbox:failed", serde_json::json!({ "id": id, "error": msg }));
+                            me.host.emit("outbox:failed", serde_json::json!({ "id": id, "error": msg }));
                         }
                     }
                 });
@@ -261,13 +262,8 @@ impl Engine {
                     let _ = self.thread_action(&ids, ThreadAction::Inbox);
                     let _ = self.thread_action(&ids, ThreadAction::Unread);
                     let n = ids.len();
-                    let _ = self
-                        .app
-                        .notification()
-                        .builder()
-                        .title("Snoozed")
-                        .body(if n == 1 { "A snoozed conversation is back in your inbox".to_string() } else { format!("{n} snoozed conversations are back") })
-                        .show();
+                    let body = if n == 1 { "A snoozed conversation is back in your inbox".to_string() } else { format!("{n} snoozed conversations are back") };
+                    self.host.notify("Snoozed", &body);
                 }
                 Ok(_) => {}
                 Err(e) => tracing::warn!("snooze: {e:#}"),

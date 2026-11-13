@@ -1,37 +1,29 @@
 mod ai;
 mod commands;
-mod config;
-mod db;
 mod error;
-mod mime;
-mod models;
-mod oauth;
-mod providers;
-mod query;
-mod secrets;
-mod sync;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use parking_lot::Mutex;
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
+
+// The mail engine lives in its own crate, shared with the server for AI assistants.
+pub(crate) use cigmail_core::{config, db, http_client, mime, models, oauth, providers, secrets, sync};
 
 use commands::AppState;
 
-/// Every HTTP client starts here. reqwest checks certificates with the
-/// platform verifier, which on Android needs a JNI handshake first and panics
-/// without it; use the bundled Mozilla roots there instead (as IMAP/SMTP do).
-pub(crate) fn http_client() -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder().user_agent(concat!("CigMail/", env!("CARGO_PKG_VERSION")));
-    #[cfg(target_os = "android")]
-    let builder = {
-        let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
-        let mut tls = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
-        // reqwest is built without HTTP/2 here, so don't let servers pick it.
-        tls.alpn_protocols = vec![b"http/1.1".to_vec()];
-        builder.tls_backend_preconfigured(tls)
-    };
-    builder
+/// The engine's view of the app: events go to the window, notifications to the system.
+struct AppHost(AppHandle);
+
+impl cigmail_core::Host for AppHost {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        let _ = self.0.emit(event, payload);
+    }
+
+    fn notify(&self, title: &str, body: &str) {
+        let _ = self.0.notification().builder().title(title).body(body).show();
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -66,7 +58,13 @@ pub fn run() {
                 .connect_timeout(Duration::from_secs(15))
                 .timeout(Duration::from_secs(120))
                 .build()?;
-            let engine = sync::Engine::new(app.handle().clone(), db.clone(), secrets.clone(), http.clone());
+            let engine = sync::Engine::new(
+                Arc::new(AppHost(app.handle().clone())),
+                tauri::async_runtime::handle().inner().clone(),
+                db.clone(),
+                secrets.clone(),
+                http.clone(),
+            );
             let ai = Arc::new(ai::Ai::new(db.clone(), secrets.clone(), http.clone()));
             app.manage(AppState {
                 db,

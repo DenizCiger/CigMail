@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-appimage_dir="$repo_root/src-tauri/target/release/bundle/appimage"
+appimage_dir="$repo_root/target/release/bundle/appimage"
 appimage="$(find "$appimage_dir" -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
 if [[ -z "$appimage" ]]; then
   printf 'No AppImage found in %s\n' "$appimage_dir" >&2

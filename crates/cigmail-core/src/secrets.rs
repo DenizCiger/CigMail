@@ -1,13 +1,14 @@
 //! Credential storage: the OS keyring (Secret Service / Keychain / Credential
 //! Manager) when available, otherwise a table in the local database so the app
-//! still works on systems without a keyring daemon. Mobile builds always use the
-//! database, which lives in the app's private storage.
+//! still works on systems without a keyring daemon. Builds without the `keyring`
+//! feature (mobile, where the database lives in the app's private storage, and the
+//! server, which has no desktop session to ask) always use the database.
 
 use anyhow::Result;
 
 use crate::db::Db;
 
-#[cfg(desktop)]
+#[cfg(feature = "keyring")]
 const SERVICE: &str = "dev.ciger.cigmail";
 
 #[derive(Clone)]
@@ -20,7 +21,7 @@ impl Secrets {
         Secrets { db }
     }
 
-    #[cfg(desktop)]
+    #[cfg(feature = "keyring")]
     pub fn get(&self, key: &str) -> Result<Option<String>> {
         match keyring::Entry::new(SERVICE, key).and_then(|e| e.get_password()) {
             Ok(v) => Ok(Some(v)),
@@ -32,7 +33,7 @@ impl Secrets {
         }
     }
 
-    #[cfg(desktop)]
+    #[cfg(feature = "keyring")]
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
         match keyring::Entry::new(SERVICE, key).and_then(|e| e.set_password(value)) {
             Ok(()) => self.db.set_fallback_secret(key, None),
@@ -43,7 +44,7 @@ impl Secrets {
         }
     }
 
-    #[cfg(desktop)]
+    #[cfg(feature = "keyring")]
     pub fn delete(&self, key: &str) -> Result<()> {
         if let Ok(e) = keyring::Entry::new(SERVICE, key) {
             let _ = e.delete_credential();
@@ -51,17 +52,17 @@ impl Secrets {
         self.db.set_fallback_secret(key, None)
     }
 
-    #[cfg(mobile)]
+    #[cfg(not(feature = "keyring"))]
     pub fn get(&self, key: &str) -> Result<Option<String>> {
         self.db.fallback_secret(key)
     }
 
-    #[cfg(mobile)]
+    #[cfg(not(feature = "keyring"))]
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
         self.db.set_fallback_secret(key, Some(value))
     }
 
-    #[cfg(mobile)]
+    #[cfg(not(feature = "keyring"))]
     pub fn delete(&self, key: &str) -> Result<()> {
         self.db.set_fallback_secret(key, None)
     }

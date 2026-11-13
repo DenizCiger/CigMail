@@ -15,3 +15,6 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
+
+# Rust build output (the workspace builds at the repository root)
+/target/

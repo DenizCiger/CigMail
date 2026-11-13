@@ -10,10 +10,9 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
 
 use crate::{
-    config,
+    Host, config,
     db::{Db, Flags, MessageRecord, MsgRef, ThreadAction, local_id},
     error::AuthExpired,
     mime,
@@ -37,7 +36,7 @@ pub struct Op {
 /// Everything a provider needs to do its job.
 #[derive(Clone)]
 pub struct Ctx {
-    pub app: AppHandle,
+    pub host: std::sync::Arc<dyn Host>,
     pub db: Db,
     pub secrets: Secrets,
     pub http: reqwest::Client,
@@ -46,18 +45,18 @@ pub struct Ctx {
 
 impl Ctx {
     pub fn emit_changed(&self) {
-        let _ = self.app.emit("mail:changed", &self.account.id);
+        self.host.emit("mail:changed", serde_json::json!(self.account.id));
     }
 
     pub fn emit_progress(&self, done: u32, total: u32) {
-        let _ = self.app.emit(
+        self.host.emit(
             "sync:status",
-            SyncStatus {
+            serde_json::json!(SyncStatus {
                 account_id: self.account.id.clone(),
                 state: "syncing".into(),
                 message: None,
                 progress: Some((done, total)),
-            },
+            }),
         );
     }
 

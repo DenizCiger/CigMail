@@ -184,14 +184,14 @@ async fn wait_for_code(listeners: &[TcpListener], path: &str, state: &str) -> Re
     }
 }
 
-#[cfg(desktop)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const SIGNED_IN: &str = "You can close this tab and return to CigMail.";
 /// Android pauses the app's network while the browser is in front, so send the
 /// user straight back; the launcher intent brings the running app forward.
 /// Android pauses the app while the browser is in front, so send the user
 /// straight back: the page tries on its own, and the button works if the
 /// browser wants a tap first. `singleTask` brings the running app forward.
-#[cfg(mobile)]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 const SIGNED_IN: &str = "Head back to CigMail to finish.<br>\
 <a href=\"intent://open#Intent;scheme=cigmail;package=dev.ciger.cigmail;end\">Open CigMail</a>\
 <script>location.href='intent://open#Intent;scheme=cigmail;package=dev.ciger.cigmail;end'</script>";

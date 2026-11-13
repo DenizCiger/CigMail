@@ -610,6 +610,33 @@ name = "cigmail"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "cigmail-core",
+ "futures",
+ "lettre",
+ "paranoid-android",
+ "parking_lot 0.13.0",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "cigmail-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "async-imap",
  "base64 0.23.1",
  "chrono",
@@ -618,7 +645,6 @@ dependencies = [
  "keyring",
  "lettre",
  "mail-parser",
- "paranoid-android",
  "parking_lot 0.13.0",
  "rand",
  "reqwest",
@@ -627,16 +653,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
  "tracing",
- "tracing-subscriber",
  "url",
  "uuid",
  "webpki-roots",
