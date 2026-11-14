@@ -399,6 +399,24 @@ impl Db {
         })
     }
 
+    /// Adds an account, or brings one that exists in line with `a` and `config`; its mail and
+    /// sync state stay. Returns whether it was new.
+    pub fn upsert_account(&self, a: &Account, config: &serde_json::Value) -> Result<bool> {
+        let known = self.with(|c| Ok(c.query_row("SELECT COUNT(*) > 0 FROM accounts WHERE id = ?", [&a.id], |r| r.get::<_, bool>(0))?))?;
+        if !known {
+            self.insert_account(a, config)?;
+        }
+        self.with(|c| {
+            c.execute(
+                "UPDATE accounts SET kind = ?2, email = ?3, name = ?4, label = ?5, color = ?6, config = ?7, signature = ?8
+                 WHERE id = ?1",
+                params![a.id, a.kind.as_str(), a.email, a.name, a.label, a.color, config.to_string(), a.signature],
+            )?;
+            Ok(())
+        })?;
+        Ok(!known)
+    }
+
     pub fn update_account_profile(
         &self,
         id: &str,

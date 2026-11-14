@@ -346,6 +346,27 @@ impl Gmail {
         Ok(())
     }
 
+    /// Saves the draft to Gmail's Drafts, unsent.
+    pub async fn save_draft(&mut self, ctx: &Ctx, draft: &Draft) -> Result<()> {
+        let built = mime::build(draft, &ctx.account, true)?;
+        let mut message = json!({ "raw": URL_SAFE_NO_PAD.encode(&built.raw) });
+        // Keep replies in the same Gmail thread.
+        let prefix = format!("{}:", ctx.account.id);
+        if let Some(t) = draft.thread_id.as_deref().and_then(|t| t.strip_prefix(&prefix)) {
+            if !t.starts_with("t:") {
+                message["threadId"] = json!(t);
+            }
+        }
+        let saved = self.post_json(ctx, &format!("{API}/drafts"), &json!({ "message": message })).await?;
+        if let Some(id) = saved["message"]["id"].as_str() {
+            if let Err(e) = self.fetch_and_store(ctx, id).await {
+                tracing::warn!("could not fetch the saved draft: {e:#}");
+            }
+            ctx.emit_changed();
+        }
+        Ok(())
+    }
+
     pub async fn fetch_raw(&mut self, ctx: &Ctx, remote_id: &str) -> Result<Vec<u8>> {
         let v = self
             .get_json(ctx, &format!("{API}/messages/{remote_id}?format=raw"))

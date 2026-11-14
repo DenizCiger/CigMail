@@ -1,0 +1,39 @@
+[package]
+name = "cigmail-server"
+description = "CigMail for AI assistants: keeps a mail cache in sync on a server and offers it as MCP tools."
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cigmail-server"
+path = "src/main.rs"
+
+[dependencies]
+cigmail-core = { path = "../cigmail-core" }
+anyhow = "1.0.104"
+argon2 = "0.5.3"
+# argon2 draws its salts from the system through this.
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+axum = "0.8.9"
+base64 = "0.23.1"
+chrono = "0.4.45"
+chrono-tz = "0.10.4"
+iana-time-zone = "0.1.65"
+parking_lot = "0.13.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "stream", "form", "rustls"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+
+[dev-dependencies]
+base64 = "0.23.1"
+sha2 = "0.11.1"
+tempfile = "3"
+ureq = "3.5.1"

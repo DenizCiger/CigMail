@@ -339,6 +339,20 @@ impl Graph {
         Ok(())
     }
 
+    /// Saves the draft to the Drafts folder, unsent: Graph turns posted MIME into a draft.
+    pub async fn save_draft(&mut self, ctx: &Ctx, draft: &Draft) -> Result<()> {
+        let built = mime::build(draft, &ctx.account, true)?;
+        let body = STANDARD.encode(&built.raw);
+        api(ctx, &self.oauth, |c, t| {
+            c.post(format!("{API}/messages"))
+                .bearer_auth(t)
+                .header("Content-Type", "text/plain")
+                .body(body.clone())
+        })
+        .await?;
+        Ok(())
+    }
+
     pub async fn fetch_raw(&self, ctx: &Ctx, remote_id: &str) -> Result<Vec<u8>> {
         let url = format!("{API}/messages/{remote_id}/$value");
         let resp = api(ctx, &self.oauth, |c, t| c.get(&url).bearer_auth(t).header("Prefer", PREFER)).await?;

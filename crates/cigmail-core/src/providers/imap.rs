@@ -73,6 +73,7 @@ enum Role {
     Archive,
     Trash,
     Spam,
+    Drafts,
 }
 
 pub struct Imap {
@@ -181,7 +182,7 @@ fn role_flags(role: Role, seen: bool, flagged: bool, draft: bool) -> Flags {
         starred: flagged,
         inbox: role == Role::Inbox,
         sent: role == Role::Sent,
-        drafts: draft,
+        drafts: draft || role == Role::Drafts,
         trash: role == Role::Trash,
         spam: role == Role::Spam,
     }
@@ -353,6 +354,11 @@ impl Imap {
         if let Some(j) = &folders.spam {
             targets.push((j.clone(), Role::Spam));
         }
+        // Drafts saved elsewhere (another mail app, an assistant) show in the Drafts view,
+        // as they do for Gmail and Outlook.
+        if let Some(d) = &folders.drafts {
+            targets.push((d.clone(), Role::Drafts));
+        }
         let mut first_err = None;
         for (folder, role) in targets {
             let mut bs = st.boxes.get(&folder).cloned().unwrap_or_default();
@@ -520,6 +526,7 @@ impl Imap {
             "archive" => (&mut folders.archive, "Archive"),
             "trash" => (&mut folders.trash, "Trash"),
             "spam" => (&mut folders.spam, "Junk"),
+            "drafts" => (&mut folders.drafts, "Drafts"),
             _ => return Ok(folders.inbox.clone()),
         };
         if let Some(f) = slot.clone() {
@@ -625,6 +632,17 @@ impl Imap {
                 Err(e) => tracing::warn!("could not find or create a Sent folder: {e:#}"),
             }
         }
+        Ok(())
+    }
+
+    /// Files the draft in the Drafts folder, unsent.
+    pub async fn save_draft(&mut self, ctx: &Ctx, draft: &Draft) -> Result<()> {
+        let built = mime::build(draft, &ctx.account, true)?;
+        let folder = self.ensure_folder(ctx, "drafts").await?;
+        let s = self.session(ctx).await?;
+        s.append(&folder, Some("(\\Draft \\Seen)"), None, &built.raw)
+            .await
+            .map_err(|e| anyhow!("could not save the draft to {folder}: {e}"))?;
         Ok(())
     }
 

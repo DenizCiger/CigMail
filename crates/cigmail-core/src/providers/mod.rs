@@ -291,6 +291,15 @@ impl Provider {
         }
     }
 
+    /// Stores a draft with the provider without sending it, so it shows up in Drafts everywhere.
+    pub async fn save_draft(&mut self, ctx: &Ctx, draft: &Draft) -> Result<()> {
+        match self {
+            Provider::Gmail(p) => p.save_draft(ctx, draft).await,
+            Provider::Graph(p) => p.save_draft(ctx, draft).await,
+            Provider::Imap(p) => p.save_draft(ctx, draft).await,
+        }
+    }
+
     pub async fn fetch_raw(&mut self, ctx: &Ctx, r: &MsgRef) -> Result<Vec<u8>> {
         match self {
             Provider::Gmail(p) => p.fetch_raw(ctx, &r.remote_id).await,
