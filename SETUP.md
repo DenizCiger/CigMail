@@ -22,7 +22,12 @@ export CIGMAIL_MICROSOFT_CLIENT_ID=00000000-0000-0000-0000-000000000000
 4. **Credentials → Create credentials → OAuth client ID → Application type: Desktop app**. Copy the **Client ID** and **Client secret** into CigMail.
 5. Optional: in *Audience*, click **Publish app** ("In production"). While the app stays in *Testing*, Google expires its sign-in after 7 days. CigMail then shows a **Reconnect** banner, and one click (plus the browser sign-in) fixes it.
 
-   Can't publish yet (Google wants branding details first)? You have two options:
+   To publish, Google wants a homepage and a privacy policy on a domain you own:
+   - Host the two pages in [`site/`](site/) (any static host works), e.g. at `https://example.com/cigmail/` and `https://example.com/cigmail/privacy/`. Change the contact address first.
+   - Verify the domain in [Google Search Console](https://search.google.com/search-console), add it under **Branding → Authorized domains**, and enter both URLs.
+   - Publish. The console will still say your app's data access is not verified: that's expected. You don't need to submit for verification for personal use. You'll see a "Google hasn't verified this app" screen at sign-in (*Advanced → Go to CigMail*), and the app is limited to 100 users. Reconnect once after publishing to get a sign-in that no longer expires.
+
+   Don't want to host pages? You have two options:
    - Stay in Testing and reconnect about once a week.
    - Add Gmail as **IMAP / SMTP → Preset "Gmail (app password)"** instead. This needs 2-step verification and an [app password](https://myaccount.google.com/apppasswords). It never expires, but sync is slower than the Gmail API and Gmail labels don't appear.
 

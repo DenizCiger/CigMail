@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy · CigMail</title>
+<style>
+:root{color-scheme:light dark;--fg:#1a1a1f;--muted:#5e5e6b;--bg:#fff;--line:#e6e6ec;--accent:#5b5bd6}
+@media (prefers-color-scheme:dark){:root{--fg:#ececf1;--muted:#a0a0ad;--bg:#111114;--line:#2a2a31;--accent:#8b8bf0}}
+*{box-sizing:border-box}body{margin:0;font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--fg);background:var(--bg)}
+main{max-width:680px;margin:0 auto;padding:56px 24px 80px}h1{font-size:2rem;margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:1.15rem;margin:2.2em 0 .4em}p,li{color:var(--fg)}.muted{color:var(--muted)}a{color:var(--accent)}
+ul{padding-left:1.2em}li{margin:.25em 0}code{font-size:.9em}footer{margin-top:3em;padding-top:1em;border-top:1px solid var(--line);font-size:.9rem;color:var(--muted)}
+.box{border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:1.2em 0}
+</style></head><body><main>
+<h1>Privacy Policy</h1>
+<p class="muted">CigMail · Last updated November 14, 2026</p>
+<p>CigMail (“the app”) is an email client made by Deniz Ciger. This policy explains what data the app accesses, where that data goes and how you can remove it. In short, your mail stays on your own devices and goes only to the services you choose to connect.</p>
+
+<h2>What CigMail accesses</h2>
+<ul>
+<li><strong>Google accounts (Gmail).</strong> With your permission, CigMail uses the scope <code>https://www.googleapis.com/auth/gmail.modify</code> to read your messages, labels and drafts, to change labels (for example archive, read, star and snooze) and to send mail you write. It also uses <code>openid</code>, <code>email</code> and <code>profile</code> to show which account is connected.</li>
+<li><strong>Microsoft accounts and IMAP/SMTP servers.</strong> CigMail accesses these in the same way, using the permissions you grant to it.</li>
+</ul>
+
+<h2>Where your data is stored</h2>
+<ul>
+<li>Your messages are cached in a local database on your device so the app can work quickly and offline. Your sign-in tokens are stored on your device too.</li>
+<li>CigMail has no central server. The developer cannot see or receive your email, contacts or account data, and the app contains no analytics, tracking or advertising.</li>
+<li>Your mail moves directly between your device and your mail provider (Google, Microsoft or your IMAP server).</li>
+</ul>
+
+<h2>Optional features that share data</h2>
+<p>These features are off until you set them up. Each one sends data only to the service you choose.</p>
+<ul>
+<li><strong>AI features (ChatGPT).</strong> If you connect your ChatGPT account, the content of an email thread or draft is sent to OpenAI when you ask CigMail to summarize, write or rewrite it. Nothing is sent unless you use one of these features. OpenAI’s privacy policy applies to that data.</li>
+<li><strong>Self-hosted server for AI assistants.</strong> If you set up your own <code>cigmail-server</code>, the app hands it your account sign-ins so it can sync your mail on a machine you control. AI assistants that you connect to your server (for example Claude or Gemini) can then search and read your mail, organize it and save drafts on your behalf. They can never send or delete mail. The server is run by you, not by the developer.</li>
+</ul>
+
+<h2>Google API Services User Data Policy</h2>
+<div class="box">CigMail’s use and transfer of information received from Google APIs to any other app will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</div>
+<p>Specifically, CigMail:</p>
+<ul>
+<li>uses Gmail data only to provide and improve the email features you see in the app</li>
+<li>transfers Gmail data to others only as described above, when you turn on a feature that needs it</li>
+<li>does not use Gmail data for advertising, and never sells it</li>
+<li>does not allow humans to read your Gmail data, unless you explicitly ask for help with a specific message, it is needed for security or to comply with the law</li>
+<li>does not use Gmail data to train general-purpose AI or machine learning models</li>
+</ul>
+
+<h2>Removing your data</h2>
+<ul>
+<li>Removing an account in CigMail deletes its local cache and tokens from that device. Uninstalling the app removes all of its data.</li>
+<li>You can revoke CigMail’s access to your Google account at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+<li>If you run a <code>cigmail-server</code>, you can delete its data directory to remove the copy stored there.</li>
+</ul>
+
+<h2>Children</h2>
+<p>CigMail is not directed at children under 13.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version will be posted on this page with a new date.</p>
+
+<h2>Contact</h2>
+<p>Questions about privacy: <a href="mailto:deniz@ciger.dev">deniz@ciger.dev</a></p>
+<footer><a href="../">CigMail</a> · <a href="https://github.com/DenizCiger/cigmail">GitHub</a></footer>
+</main></body></html>
