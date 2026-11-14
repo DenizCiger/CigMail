@@ -300,6 +300,21 @@ impl Provider {
         }
     }
 
+    /// Removes a draft from the provider's Drafts and from the cache.
+    pub async fn discard_draft(&mut self, ctx: &Ctx, r: &MsgRef) -> Result<()> {
+        if !r.flags.drafts {
+            bail!("that message is not a draft");
+        }
+        match self {
+            Provider::Gmail(p) => p.discard_draft(ctx, &r.remote_id).await?,
+            Provider::Graph(p) => p.discard_draft(ctx, &r.remote_id).await?,
+            Provider::Imap(p) => p.discard_draft(ctx, r).await?,
+        }
+        ctx.db.delete_message(&ctx.account.id, &r.remote_id)?;
+        ctx.emit_changed();
+        Ok(())
+    }
+
     pub async fn fetch_raw(&mut self, ctx: &Ctx, r: &MsgRef) -> Result<Vec<u8>> {
         match self {
             Provider::Gmail(p) => p.fetch_raw(ctx, &r.remote_id).await,

@@ -199,6 +199,10 @@ pub struct Draft {
     /// Quoted original shown below the editor (already HTML).
     #[serde(default)]
     pub quoted_html: Option<String>,
+    /// The id of the draft in the account's Drafts folder that this one was opened from (one
+    /// written in another mail app, or by an assistant). Sending removes that copy.
+    #[serde(default)]
+    pub replaces: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,7 +5,11 @@ Claude, Gemini and other assistants that speak the [Model Context Protocol](http
 "archive the newsletters", "snooze this until Monday", "draft a reply saying I'll be there".
 
 **An assistant can never send mail.** A draft it writes is saved to the Drafts folder of the
-account, and you send it yourself from a mail app. It also can't delete anything or report spam.
+account, and you send it yourself. It also can't delete anything or report spam.
+
+In CigMail a draft like that shows in the Drafts view, and inside the conversation it answers,
+marked **Draft · not sent yet**. *Edit & send* opens it in the composer; sending removes the copy
+in Drafts, and *Delete* throws it away. The same works for drafts you started in another mail app.
 
 ## How it fits together
 

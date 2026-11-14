@@ -89,6 +89,8 @@ export interface Draft {
   attachments: { path: string }[];
   mode?: "new" | "reply" | "replyAll" | "forward" | null;
   quotedHtml?: string | null;
+  /** The draft in the account's Drafts folder this was opened from; sending removes it. */
+  replaces?: string | null;
 }
 
 export interface Split {

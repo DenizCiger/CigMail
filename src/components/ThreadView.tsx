@@ -16,6 +16,7 @@ import {
   PanelRight,
   Sun,
   Paperclip,
+  Pencil,
   RefreshCw,
   Reply,
   ReplyAll,
@@ -30,7 +31,7 @@ import { aiStream, api, errorMessage } from "../lib/api";
 import { isMobile } from "../lib/platform";
 import { displayName, formatBytes, longDate, shortDate } from "../lib/format";
 import type { Message, ThreadDetail } from "../lib/types";
-import { Avatar, IconButton, Kbd, Spinner } from "./ui";
+import { Avatar, Button, IconButton, Kbd, Spinner } from "./ui";
 import { EmailFrame } from "./EmailFrame";
 import { writeText } from "../lib/clipboard";
 import { emailIsDark, toggleEmailTheme } from "../lib/commands";
@@ -129,12 +130,22 @@ function MessageCard({
 }) {
   const unsubscribe = m.listUnsubscribe?.match(/<(https?:[^>]+)>/)?.[1];
   const reply = useStore((s) => s.reply);
+  const editDraft = useStore((s) => s.editDraft);
+  const discardDraft = useStore((s) => s.discardDraft);
   const openMenu = useStore((s) => s.openMenu);
   const toast = useStore((s) => s.toast);
   const [details, setDetails] = useState(false);
   const onContextMenu = (e: React.MouseEvent) => {
     if (window.getSelection()?.toString()) return;
     e.preventDefault();
+    if (m.isDraft) {
+      openMenu(e.clientX, e.clientY, [
+        { label: "Edit draft", icon: Pencil, run: () => editDraft(m.id) },
+        { label: "Delete draft", icon: Trash2, run: () => discardDraft(m.id) },
+        { label: expanded ? "Collapse" : "Expand", icon: expanded ? ChevronUp : ChevronDown, separator: true, run: onToggle },
+      ]);
+      return;
+    }
     openMenu(e.clientX, e.clientY, [
       { label: "Reply to this message", icon: Reply, run: () => reply("reply", m.id) },
       { label: "Reply all", icon: ReplyAll, run: () => reply("replyAll", m.id) },
@@ -151,8 +162,8 @@ function MessageCard({
         className="flex w-full items-center gap-3 border-b border-line px-4 py-2.5 text-left hover:bg-hover @xl:px-6"
       >
         <Avatar address={m.from} size={24} />
-        <span className={clsx("w-28 shrink-0 truncate text-[13px] @xl:w-40", !m.isRead ? "font-semibold" : "text-fg-2")}>
-          {displayName(m.from, me)}
+        <span className={clsx("w-28 shrink-0 truncate text-[13px] @xl:w-40", m.isDraft ? "text-danger/90" : !m.isRead ? "font-semibold" : "text-fg-2")}>
+          {m.isDraft ? "Draft" : displayName(m.from, me)}
         </span>
         <span className="min-w-0 flex-1 truncate text-[13px] text-fg-3">{m.snippet}</span>
         {m.attachments.some((a) => !a.inline) && <Paperclip size={12} className="text-fg-3" />}
@@ -189,10 +200,29 @@ function MessageCard({
         </div>
       </header>
       <div className="selectable @xl:pl-11">
+        {m.isDraft && <DraftBar onEdit={() => editDraft(m.id)} onDiscard={() => discardDraft(m.id)} />}
         <EmailFrame html={m.bodyHtml} text={m.bodyText ?? m.snippet} sender={m.from.email} />
         <Attachments m={m} />
       </div>
     </article>
+  );
+}
+
+/** Shown on a draft from the Drafts folder: it hasn't been sent, and here is how to finish it. */
+export function DraftBar({ onEdit, onDiscard }: { onEdit: () => void; onDiscard: () => void }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line-strong bg-elev px-3 py-2">
+      <Pencil size={14} className="shrink-0 text-danger/90" />
+      <span className="min-w-[10rem] flex-1 text-[13px]">
+        <span className="font-medium text-danger/90">Draft</span> <span className="text-fg-3">· not sent yet</span>
+      </span>
+      <Button variant="ghost" onClick={onDiscard}>
+        Delete
+      </Button>
+      <Button variant="primary" onClick={onEdit}>
+        Edit &amp; send
+      </Button>
+    </div>
   );
 }
 

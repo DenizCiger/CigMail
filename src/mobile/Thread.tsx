@@ -15,6 +15,7 @@ import {
   Moon,
   MoreVertical,
   Paperclip,
+  Pencil,
   Reply,
   ReplyAll,
   ShieldAlert,
@@ -31,7 +32,7 @@ import type { Message, ThreadDetail } from "../lib/types";
 import { emailIsDark, toggleEmailTheme } from "../lib/commands";
 import { Avatar, Spinner } from "../components/ui";
 import { EmailFrame } from "../components/EmailFrame";
-import { AiSummary } from "../components/ThreadView";
+import { AiSummary, DraftBar } from "../components/ThreadView";
 import { ActionSheet, type SheetAction } from "./Sheets";
 import { BarButton } from "./Inbox";
 import { AddressChip, MessageDetails, RecipientsLine, selectingText } from "../components/People";
@@ -80,7 +81,14 @@ function MessageCard({ m, expanded, onToggle, me }: { m: Message; expanded: bool
   const onLongPress = (e: React.MouseEvent) => {
     if (selectingText()) return;
     e.preventDefault();
-    const { reply, toast } = useStore.getState();
+    const { reply, toast, editDraft, discardDraft } = useStore.getState();
+    if (m.isDraft) {
+      setActions([
+        { label: "Edit draft", icon: Pencil, run: () => editDraft(m.id) },
+        { label: "Delete draft", icon: Trash2, run: () => discardDraft(m.id) },
+      ]);
+      return;
+    }
     setActions([
       { label: "Reply to this message", icon: Reply, run: () => reply("reply", m.id, false) },
       { label: "Reply all", icon: ReplyAll, run: () => reply("replyAll", m.id, false) },
@@ -97,7 +105,7 @@ function MessageCard({ m, expanded, onToggle, me }: { m: Message; expanded: bool
         <Avatar address={m.from} size={32} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className={clsx("min-w-0 flex-1 truncate text-[14.5px]", !m.isRead ? "font-semibold" : "text-fg-2")}>{displayName(m.from, me)}</span>
+            <span className={clsx("min-w-0 flex-1 truncate text-[14.5px]", m.isDraft ? "text-danger/90" : !m.isRead ? "font-semibold" : "text-fg-2")}>{m.isDraft ? "Draft" : displayName(m.from, me)}</span>
             {m.attachments.some((a) => !a.inline) && <Paperclip size={12} className="shrink-0 text-fg-3" />}
             <span className="shrink-0 text-[12px] tabular-nums text-fg-3">{shortDate(m.date)}</span>
           </span>
@@ -132,6 +140,7 @@ function MessageCard({ m, expanded, onToggle, me }: { m: Message; expanded: bool
       </header>
       {/* EmailFrame pulls itself out by the paper's padding; this leaves an 8px margin. */}
       <div className="selectable -mx-2 px-[18px]">
+        {m.isDraft && <DraftBar onEdit={() => useStore.getState().editDraft(m.id)} onDiscard={() => useStore.getState().discardDraft(m.id)} />}
         <EmailFrame html={m.bodyHtml} text={m.bodyText ?? m.snippet} sender={m.from.email} />
       </div>
       <Attachments m={m} />

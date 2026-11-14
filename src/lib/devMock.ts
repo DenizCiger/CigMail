@@ -120,6 +120,7 @@ function filterThreads(filter: { view: string; accountId?: string | null; query?
 
 export function installDevMock() {
   const settings: Record<string, string> = {};
+  let discardedDraft = false;
   let serverUrl: string | null = null;
   let serverDevices = [
     { id: "d1", kind: "app", name: "CigMail (linux)", createdAt: Date.now() - 86400000 * 3, lastSeenAt: Date.now(), canWrite: null },
@@ -184,8 +185,39 @@ export function installDevMock() {
         }
         case "get_thread": {
           const t = threads.find((x) => x.id === args.id)!;
-          return { thread: t, messages: messagesFor(t) };
+          const messages = messagesFor(t);
+          // The first conversation has a reply waiting in Drafts, as an assistant would leave one.
+          if (t === threads[0] && !discardedDraft) {
+            const last = messages[messages.length - 1];
+            const acc = accounts.find((a) => a.id === t.accountId)!;
+            messages.push({
+              ...last,
+              id: `${t.id}:draft`,
+              from: { name: acc.name, email: acc.email },
+              to: [last.from],
+              cc: [],
+              references: [last.messageId!],
+              subject: `Re: ${t.subject}`,
+              date: now - 600,
+              snippet: "Thanks, that works for me. I'll confirm by Friday.",
+              bodyHtml: "<p>Thanks, that works for me.</p><p>I'll confirm by Friday.</p>",
+              bodyText: "Thanks, that works for me.\n\nI'll confirm by Friday.",
+              isRead: true,
+              isDraft: true,
+              inSent: false,
+              attachments: [],
+              listUnsubscribe: null,
+            });
+          }
+          return { thread: t, messages };
         }
+        case "edit_server_draft": {
+          const t = threads[0];
+          return { accountId: t.accountId, to: t.participants.slice(0, 1), cc: [], bcc: [], subject: `Re: ${t.subject}`, html: "<p>Thanks, that works for me.</p><p>I'll confirm by Friday.</p>", text: "", references: [], attachments: [], threadId: t.id, mode: "reply", replaces: args.messageId };
+        }
+        case "discard_server_draft":
+          discardedDraft = true;
+          return null;
         case "thread_action": {
           for (const id of args.threadIds as string[]) {
             const t = threads.find((x) => x.id === id);

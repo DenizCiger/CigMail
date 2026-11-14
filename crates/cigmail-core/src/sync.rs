@@ -106,6 +106,14 @@ impl Engine {
         Ok(())
     }
 
+    /// Deletes a draft from the account's Drafts folder: one the user discarded, or one that
+    /// was opened in the composer and has now been sent.
+    pub async fn discard_draft(&self, message_id: &str) -> Result<()> {
+        let (account_id, r) = self.db.message_locator(message_id)?;
+        let ctx = self.ctx(&account_id)?;
+        Provider::new(&ctx)?.discard_draft(&ctx, &r).await
+    }
+
     async fn worker(self: Arc<Self>, account_id: String, wake: Arc<Notify>) {
         let mut provider: Option<Provider> = None;
         let mut backoff = 0u32;
@@ -239,6 +247,13 @@ impl Engine {
                             let _ = me.db.finish_outgoing(&id, None);
                             if let Some(did) = &draft.id {
                                 let _ = me.db.delete_draft(did);
+                            }
+                            // The mail is out; the draft it was written from would only invite
+                            // sending it twice.
+                            if let Some(original) = &draft.replaces
+                                && let Err(e) = me.discard_draft(original).await
+                            {
+                                tracing::warn!("could not remove the sent draft from Drafts: {e:#}");
                             }
                             me.host.emit("outbox:sent", serde_json::json!(id));
                             me.wake(&draft.account_id);

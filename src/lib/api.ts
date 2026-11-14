@@ -49,6 +49,8 @@ export const api = {
   failedSends: () => invoke<{ id: string; draft: Draft; error: string }[]>("failed_sends"),
   saveDraft: (draft: Draft) => invoke<string>("save_draft", { draft }),
   listDrafts: () => invoke<Draft[]>("list_drafts"),
+  editServerDraft: (messageId: string) => invoke<Draft>("edit_server_draft", { messageId }),
+  discardServerDraft: (messageId: string) => invoke<void>("discard_server_draft", { messageId }),
   deleteDraft: (id: string) => invoke<void>("delete_draft", { id }),
   suggestContacts: (query: string) => invoke<Contact[]>("suggest_contacts", { query }),
   /** Copies a file picked in the webview to disk so it can be attached. Returns its path. */

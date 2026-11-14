@@ -353,6 +353,17 @@ impl Graph {
         Ok(())
     }
 
+    /// Deletes a draft (Graph moves it to Deleted Items).
+    pub async fn discard_draft(&mut self, ctx: &Ctx, remote_id: &str) -> Result<()> {
+        let url = format!("{API}/messages/{remote_id}");
+        match api(ctx, &self.oauth, |c, t| c.delete(&url).bearer_auth(t)).await {
+            Ok(_) => Ok(()),
+            // Already sent or deleted elsewhere.
+            Err(e) if super::http_status(&e) == Some(404) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn fetch_raw(&self, ctx: &Ctx, remote_id: &str) -> Result<Vec<u8>> {
         let url = format!("{API}/messages/{remote_id}/$value");
         let resp = api(ctx, &self.oauth, |c, t| c.get(&url).bearer_auth(t).header("Prefer", PREFER)).await?;

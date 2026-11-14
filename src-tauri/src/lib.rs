@@ -96,6 +96,8 @@ pub fn run() {
             commands::thread_action,
             commands::snooze,
             commands::reply_draft,
+            commands::edit_server_draft,
+            commands::discard_server_draft,
             commands::send_message,
             commands::cancel_send,
             commands::failed_sends,

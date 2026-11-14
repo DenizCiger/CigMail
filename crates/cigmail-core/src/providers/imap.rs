@@ -646,6 +646,19 @@ impl Imap {
         Ok(())
     }
 
+    /// Removes a draft from the Drafts folder for good.
+    pub async fn discard_draft(&mut self, ctx: &Ctx, r: &MsgRef) -> Result<()> {
+        let (Some(folder), Some(uid)) = (r.folder.clone(), r.imap_uid) else {
+            bail!("draft has no IMAP location");
+        };
+        let set = uid.to_string();
+        let s = self.session(ctx).await?;
+        s.select(&folder).await?;
+        let _: Vec<Fetch> = s.uid_store(&set, "+FLAGS.SILENT (\\Deleted)").await?.try_collect().await?;
+        let _: Vec<u32> = s.uid_expunge(&set).await?.try_collect().await?;
+        Ok(())
+    }
+
     pub async fn fetch_raw(&mut self, ctx: &Ctx, r: &MsgRef) -> Result<Vec<u8>> {
         let (Some(folder), Some(uid)) = (r.folder.clone(), r.imap_uid) else {
             bail!("message has no IMAP location");

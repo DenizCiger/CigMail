@@ -111,6 +111,10 @@ interface State {
   snoozeThreads: (ids: string[], until: number | null) => Promise<void>;
 
   compose: (draft?: Partial<Draft>, inline?: boolean) => void;
+  /** Opens a draft from the account's Drafts folder in the composer. */
+  editDraft: (messageId: string) => Promise<void>;
+  /** Deletes a draft from the account's Drafts folder. */
+  discardDraft: (messageId: string) => Promise<void>;
   reply: (mode: "reply" | "replyAll" | "forward", messageId: string, inline?: boolean) => Promise<void>;
   closeComposer: () => void;
   send: (draft: Draft) => Promise<boolean>;
@@ -611,6 +615,25 @@ export const useStore = create<State>((set, get) => ({
     try {
       const draft = await api.replyDraft(messageId, mode);
       get().compose(draft, inline && mode !== "forward" ? true : inline);
+    } catch (e) {
+      get().toast(errorMessage(e), { kind: "error" });
+    }
+  },
+
+  editDraft: async (messageId) => {
+    try {
+      // Already open (the composer autosaves a local copy)? Don't start a second one.
+      if (get().composer?.draft.replaces === messageId) return;
+      get().compose(await api.editServerDraft(messageId), false);
+    } catch (e) {
+      get().toast(errorMessage(e), { kind: "error" });
+    }
+  },
+
+  discardDraft: async (messageId) => {
+    try {
+      await api.discardServerDraft(messageId);
+      get().toast("Draft deleted");
     } catch (e) {
       get().toast(errorMessage(e), { kind: "error" });
     }

@@ -358,6 +358,24 @@ pub fn reply_draft(state: State<'_, AppState>, message_id: String, mode: String)
     Ok(mime::reply_draft(&msg, &account, &mode))
 }
 
+/// Opens a draft from the account's Drafts folder (written in another mail app, or by an
+/// assistant) in the composer. Sending it removes that copy.
+#[tauri::command]
+pub fn edit_server_draft(state: State<'_, AppState>, message_id: String) -> CmdResult<Draft> {
+    let msg = state.db.message(&message_id)?;
+    if !msg.is_draft {
+        return Err(anyhow!("that message is not a draft").into());
+    }
+    Ok(mime::draft_from_message(&msg))
+}
+
+/// Deletes a draft from the account's Drafts folder.
+#[tauri::command]
+pub async fn discard_server_draft(state: State<'_, AppState>, message_id: String) -> CmdResult<()> {
+    state.engine.discard_draft(&message_id).await?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn send_message(state: State<'_, AppState>, draft: Draft) -> CmdResult<SendResult> {
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {

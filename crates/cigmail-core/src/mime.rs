@@ -421,6 +421,40 @@ fn dedupe(list: Vec<Address>, exclude: &[String]) -> Vec<Address> {
     out
 }
 
+/// What sits between `<body>` and `</body>`, or all of it for a fragment.
+fn body_inner(html: &str) -> &str {
+    let lower = html.to_ascii_lowercase();
+    let Some(open) = lower.find("<body") else { return html };
+    let Some(start) = lower[open..].find('>').map(|i| open + i + 1) else { return html };
+    let end = lower.rfind("</body>").filter(|e| *e >= start).unwrap_or(html.len());
+    &html[start..end]
+}
+
+/// Turns a draft from the account's Drafts folder back into something the composer can edit.
+/// A quoted original in it is part of the text now, not a separate quote.
+pub fn draft_from_message(msg: &Message) -> Draft {
+    let html = match &msg.body_html {
+        Some(h) => body_inner(h).trim().to_string(),
+        None => text_to_html(msg.body_text.as_deref().unwrap_or("").trim()),
+    };
+    let is_reply = !msg.references.is_empty();
+    Draft {
+        account_id: msg.account_id.clone(),
+        to: msg.to.clone(),
+        cc: msg.cc.clone(),
+        bcc: msg.bcc.clone(),
+        subject: msg.subject.clone(),
+        html,
+        // By convention the last reference is the message being answered.
+        in_reply_to: msg.references.last().cloned(),
+        references: msg.references.clone(),
+        thread_id: is_reply.then(|| msg.thread_id.clone()),
+        mode: Some(if is_reply { "reply" } else { "new" }.into()),
+        replaces: Some(msg.id.clone()),
+        ..Default::default()
+    }
+}
+
 pub fn reply_draft(msg: &Message, account: &Account, mode: &str) -> Draft {
     let me = vec![account.email.to_lowercase()];
     let from_me = msg.from.email.eq_ignore_ascii_case(&account.email);
@@ -495,6 +529,72 @@ pub fn reply_draft(msg: &Message, account: &Account, mode: &str) -> Draft {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saved_draft_opens_in_the_composer_again() {
+        let account = Account {
+            id: "acc".into(),
+            kind: crate::models::AccountKind::Imap,
+            email: "anna@example.org".into(),
+            name: "Anna".into(),
+            label: None,
+            color: String::new(),
+            created_at: 0,
+            last_sync: None,
+            last_error: None,
+            signature: None,
+        };
+        let written = Draft {
+            account_id: "acc".into(),
+            to: vec![Address { name: Some("Mia Huber".into()), email: "mia@example.net".into() }],
+            cc: vec![Address { name: None, email: "tom@example.net".into() }],
+            subject: "Re: Lunch on Friday?".into(),
+            html: "<p>Friday works &amp; I'll bring Tom.</p>".into(),
+            quoted_html: Some("<blockquote>Are you free?</blockquote>".into()),
+            in_reply_to: Some("m1@example.net".into()),
+            references: vec!["m0@example.net".into(), "m1@example.net".into()],
+            ..Default::default()
+        };
+        // What an assistant's draft looks like once it has been to the mail server and back.
+        let parsed = parse(&build(&written, &account, true).unwrap().raw).unwrap();
+        let stored = Message {
+            id: "acc:42".into(),
+            account_id: "acc".into(),
+            thread_id: "acc:t:m0@example.net".into(),
+            message_id: parsed.message_id,
+            references: parsed.refs,
+            subject: parsed.subject,
+            from: parsed.from,
+            to: parsed.to,
+            cc: parsed.cc,
+            bcc: parsed.bcc,
+            reply_to: vec![],
+            date: 0,
+            snippet: String::new(),
+            body_html: parsed.body_html,
+            body_text: parsed.body_text,
+            is_read: true,
+            is_starred: false,
+            is_draft: true,
+            in_sent: false,
+            attachments: vec![],
+            list_unsubscribe: None,
+        };
+        let d = draft_from_message(&stored);
+        assert_eq!(d.replaces.as_deref(), Some("acc:42"), "sending it removes the copy in Drafts");
+        assert_eq!((d.account_id.as_str(), d.subject.as_str()), ("acc", "Re: Lunch on Friday?"));
+        assert_eq!(d.to, written.to);
+        assert_eq!(d.cc, written.cc);
+        assert_eq!(d.html, "<p>Friday works &amp; I'll bring Tom.</p><br><blockquote>Are you free?</blockquote>", "the body without the document around it");
+        assert_eq!(d.quoted_html, None, "the quote is part of the text now, not added a second time");
+        assert_eq!((d.in_reply_to.as_deref(), d.references.len()), (Some("m1@example.net"), 2), "still a reply in its thread");
+        assert_eq!((d.thread_id.as_deref(), d.mode.as_deref()), (Some("acc:t:m0@example.net"), Some("reply")));
+
+        assert_eq!(body_inner("<HTML><BODY class=x>hi</BODY></HTML>"), "hi");
+        assert_eq!(body_inner("<p>just a fragment</p>"), "<p>just a fragment</p>");
+        let plain = draft_from_message(&Message { body_html: None, body_text: Some("a\nb".into()), references: vec![], ..stored });
+        assert_eq!((plain.html.as_str(), plain.mode.as_deref(), plain.thread_id), ("a<br>b", Some("new"), None));
+    }
 
     #[test]
     fn parses_basic_message() {

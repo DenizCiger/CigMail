@@ -367,6 +367,30 @@ impl Gmail {
         Ok(())
     }
 
+    /// Deletes a draft for good. Gmail addresses drafts by their own id, so find the draft that
+    /// holds this message first.
+    pub async fn discard_draft(&mut self, ctx: &Ctx, remote_id: &str) -> Result<()> {
+        let mut page: Option<String> = None;
+        loop {
+            let mut url = format!("{API}/drafts?maxResults=500");
+            if let Some(p) = &page {
+                url.push_str(&format!("&pageToken={p}"));
+            }
+            let list = self.get_json(ctx, &url).await?;
+            let found = list["drafts"].as_array().into_iter().flatten().find(|d| d["message"]["id"].as_str() == Some(remote_id));
+            if let Some(id) = found.and_then(|d| d["id"].as_str()) {
+                let url = format!("{API}/drafts/{id}");
+                api(ctx, &self.oauth, |c, t| c.delete(&url).bearer_auth(t)).await?;
+                return Ok(());
+            }
+            match list["nextPageToken"].as_str() {
+                Some(next) => page = Some(next.to_string()),
+                // Already sent or deleted elsewhere.
+                None => return Ok(()),
+            }
+        }
+    }
+
     pub async fn fetch_raw(&mut self, ctx: &Ctx, remote_id: &str) -> Result<Vec<u8>> {
         let v = self
             .get_json(ctx, &format!("{API}/messages/{remote_id}?format=raw"))
