@@ -13,6 +13,7 @@ import type {
   ThreadDetail,
   ThreadFilter,
   ThreadSummary,
+  ServerState,
 } from "./types";
 
 export const api = {
@@ -70,6 +71,12 @@ export const api = {
   aiLogout: () => invoke<void>("ai_logout"),
   aiModels: () => invoke<ModelInfo[]>("ai_models"),
   aiCancel: (requestId: string) => invoke<void>("ai_cancel", { requestId }),
+
+  serverStatus: () => invoke<ServerState>("server_status"),
+  serverConnect: (url: string, password: string) => invoke<ServerState>("server_connect", { url, password }),
+  serverPush: () => invoke<ServerState>("server_push"),
+  serverDisconnect: (wipe: boolean) => invoke<void>("server_disconnect", { wipe }),
+  serverRemoveDevice: (id: string) => invoke<ServerState>("server_remove_device", { id }),
 };
 
 /** Streams an AI job. Returns a cancel function. */

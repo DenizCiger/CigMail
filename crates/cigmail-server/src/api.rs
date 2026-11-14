@@ -35,6 +35,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/unpair", post(unpair))
         .route("/v1/status", get(status))
         .route("/v1/accounts", put(put_accounts))
+        .route("/v1/accounts/{id}", delete(delete_account))
         .route("/v1/devices/{id}", delete(revoke_device))
         .route("/v1/assistants/log", get(oauth::activity))
         .route("/oauth/authorize", get(oauth::authorize_page).post(oauth::authorize))
@@ -275,6 +276,18 @@ fn forget_account(state: &AppState, id: &str) -> anyhow::Result<()> {
         let _ = state.secrets.delete(&format!("{kind}:{id}"));
     }
     state.mail.delete_account(id)
+}
+
+/// `DELETE /v1/accounts/{id}`: the account was removed in the app; its mail and login go here too.
+async fn delete_account(State(state): State<Arc<AppState>>, _me: App, Path(id): Path<String>) -> ApiResult<StatusCode> {
+    blocking(move || {
+        if state.mail.account(&id).is_err() {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "no such account"));
+        }
+        forget_account(&state, &id)?;
+        Ok(StatusCode::NO_CONTENT)
+    })
+    .await
 }
 
 /// `PUT /v1/accounts`: the app's accounts and their logins. The server syncs them from then on,

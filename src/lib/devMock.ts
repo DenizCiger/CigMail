@@ -120,6 +120,12 @@ function filterThreads(filter: { view: string; accountId?: string | null; query?
 
 export function installDevMock() {
   const settings: Record<string, string> = {};
+  let serverUrl: string | null = null;
+  let serverDevices = [
+    { id: "d1", kind: "app", name: "CigMail (linux)", createdAt: Date.now() - 86400000 * 3, lastSeenAt: Date.now(), canWrite: null },
+    { id: "d2", kind: "assistant", name: "Claude", createdAt: Date.now() - 86400000 * 2, lastSeenAt: Date.now() - 3600000, canWrite: true },
+    { id: "d3", kind: "assistant", name: "Gemini", createdAt: Date.now() - 86400000, lastSeenAt: null, canWrite: false },
+  ];
   let splits = [
     { id: "important", name: "Important", query: "category:primary" },
     { id: "news", name: "News", query: "category:newsletter" },
@@ -140,6 +146,28 @@ export function installDevMock() {
           return settings;
         case "set_setting":
           settings[args.key] = args.value;
+          return null;
+        case "server_status":
+        case "server_connect":
+        case "server_push":
+        case "server_remove_device": {
+          if (cmd === "server_connect") serverUrl = "https://mail.example.org";
+          if (cmd === "server_remove_device") serverDevices = serverDevices.filter((d) => d.id !== args.id);
+          if (!serverUrl) return { url: null, mcpUrl: null, status: null, error: null };
+          return {
+            url: serverUrl,
+            mcpUrl: `${serverUrl}/mcp`,
+            error: null,
+            status: {
+              version: "0.1.0",
+              deviceId: "d1",
+              accounts: accounts.map((a, i) => ({ id: a.id, email: a.email, kind: a.kind, lastSync: now - 40, lastError: i === 1 ? "Sign-in expired. Reconnect this account." : null })),
+              devices: serverDevices,
+            },
+          };
+        }
+        case "server_disconnect":
+          serverUrl = null;
           return null;
         case "ai_status":
           return { connected: true, email: "deniz@gmail.com", plan: "plus", model: null };

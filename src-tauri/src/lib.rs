@@ -1,6 +1,7 @@
 mod ai;
 mod commands;
 mod error;
+mod server;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -118,6 +119,11 @@ pub fn run() {
             commands::ai_summarize,
             commands::ai_compose,
             commands::ai_rewrite,
+            server::server_status,
+            server::server_connect,
+            server::server_push,
+            server::server_disconnect,
+            server::server_remove_device,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

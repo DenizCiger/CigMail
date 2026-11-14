@@ -45,3 +45,7 @@ paranoid-android = "0.2.2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 cigmail-core = { path = "../crates/cigmail-core", features = ["keyring"] }
+
+[dev-dependencies]
+cigmail-server = { path = "../crates/cigmail-server" }
+tempfile = "3"

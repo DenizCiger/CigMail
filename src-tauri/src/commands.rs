@@ -116,6 +116,7 @@ pub async fn add_oauth_account(app: AppHandle, state: State<'_, AppState>, req: 
         state.secrets.set_json(&format!("oauth:{}", existing.id), &tokens)?;
         state.db.set_sync_result(&existing.id, None)?;
         state.engine.start(&existing.id);
+        crate::server::push_soon(&state);
         return Ok(state.db.account(&existing.id)?);
     }
 
@@ -134,6 +135,7 @@ pub async fn add_oauth_account(app: AppHandle, state: State<'_, AppState>, req: 
     state.secrets.set_json(&format!("oauth:{}", account.id), &tokens)?;
     state.db.insert_account(&account, &serde_json::json!({}))?;
     state.engine.start(&account.id);
+    crate::server::push_soon(&state);
     Ok(account)
 }
 
@@ -210,6 +212,7 @@ pub async fn add_imap_account(app: AppHandle, state: State<'_, AppState>, req: N
     };
     state.db.insert_account(&account, &serde_json::to_value(&cfg)?)?;
     state.engine.start(&account.id);
+    crate::server::push_soon(&state);
     Ok(account)
 }
 
@@ -248,6 +251,7 @@ pub async fn reconnect_account(app: AppHandle, state: State<'_, AppState>, id: S
     }
     state.db.set_sync_result(&id, None)?;
     state.engine.start(&id);
+    crate::server::push_soon(&state);
     Ok(())
 }
 
@@ -270,6 +274,8 @@ pub fn update_account(state: State<'_, AppState>, update: AccountUpdate) -> CmdR
         &update.color,
         update.signature.as_deref().filter(|s| !s.trim().is_empty()),
     )?;
+    // The name and the signature go into drafts an assistant writes.
+    crate::server::push_soon(&state);
     Ok(state.db.account(&update.id)?)
 }
 
@@ -279,6 +285,7 @@ pub fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let _ = state.secrets.delete(&format!("oauth:{id}"));
     let _ = state.secrets.delete(&format!("password:{id}"));
     state.db.delete_account(&id)?;
+    crate::server::forget_account_soon(&state, &id);
     Ok(())
 }
 

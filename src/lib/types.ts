@@ -151,3 +151,33 @@ export type AiEvent =
   | { type: "delta"; text: string }
   | { type: "done"; text: string }
   | { type: "error"; message: string };
+
+/** An app or assistant connected to the server for AI assistants. */
+export interface ServerDevice {
+  id: string;
+  kind: "app" | "assistant";
+  name: string;
+  createdAt: number;
+  lastSeenAt: number | null;
+  /** Assistants only: whether it may change things or only read. */
+  canWrite: boolean | null;
+}
+
+export interface ServerStatus {
+  version: string;
+  /** This app's own entry in `devices`. */
+  deviceId: string;
+  accounts: { id: string; email: string; kind: AccountKind; lastSync: number | null; lastError: string | null }[];
+  devices: ServerDevice[];
+}
+
+/** The link to the user's cigmail-server. */
+export interface ServerState {
+  /** Null when the app isn't connected to a server. */
+  url: string | null;
+  /** The address to give an assistant. */
+  mcpUrl: string | null;
+  status: ServerStatus | null;
+  /** Why the server couldn't be reached just now. */
+  error: string | null;
+}

@@ -256,6 +256,12 @@ fn the_app_pairs_and_hands_over_its_accounts() {
     assert_eq!(status["devices"][0]["name"], "Laptop");
     assert!(!h.send("GET", "/v1/status", Some(&app), None).body.contains("new-pass"), "logins never come back out");
 
+    // Removed in the app: gone here, with its login. Then back, for the next check.
+    assert_eq!(h.send("DELETE", &format!("/v1/accounts/{ACCOUNT}"), Some(&app), None).status, 204);
+    assert_eq!(h.send("DELETE", &format!("/v1/accounts/{ACCOUNT}"), Some(&app), None).status, 404);
+    assert_eq!(state.secrets.get(&format!("password:{ACCOUNT}")).unwrap(), None);
+    assert_eq!(h.send("PUT", "/v1/accounts", Some(&app), Some(&again)).json()["added"], 1);
+
     // An account the app no longer has goes, with its login.
     let r = h.send("PUT", "/v1/accounts", Some(&app), Some(&json!({ "replace": true, "accounts": [] })));
     assert_eq!(r.json(), json!({ "added": 0, "updated": 0, "removed": 1 }));

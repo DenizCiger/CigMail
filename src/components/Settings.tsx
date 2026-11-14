@@ -6,7 +6,9 @@ import {
   History,
   ArrowDown,
   ArrowUp,
+  Bot,
   Check,
+  Copy,
   KeyRound,
   Layers,
   Mail,
@@ -20,7 +22,8 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useStore } from "../store";
 import { api, errorMessage } from "../lib/api";
-import type { Account, AccountKind, ImapConfig, ModelInfo, Split } from "../lib/types";
+import type { Account, AccountKind, ImapConfig, ModelInfo, ServerState, Split } from "../lib/types";
+import { writeText } from "../lib/clipboard";
 import { Button, Field, IconButton, Input, Modal, ProviderGlyph, Select, Spinner, Switch, focusables } from "./ui";
 import { isMobile } from "../lib/platform";
 import { useBackLayer } from "../mobile/back";
@@ -30,6 +33,7 @@ const SECTIONS = [
   { id: "accounts", label: "Accounts", icon: Mail },
   { id: "splits", label: "Split inbox", icon: Layers },
   { id: "ai", label: "AI", icon: Sparkles },
+  { id: "assistants", label: "Assistants", icon: Bot },
   { id: "connections", label: "Connections", icon: KeyRound },
 ];
 
@@ -113,6 +117,7 @@ export function Settings() {
           {section === "accounts" && <Accounts />}
           {section === "splits" && <Splits />}
           {section === "ai" && <AiSettings />}
+          {section === "assistants" && <Assistants />}
           {section === "connections" && <Connections />}
         </div>
       </div>
@@ -151,6 +156,7 @@ function MobileSettings() {
             {section === "accounts" && <Accounts />}
             {section === "splits" && <Splits />}
             {section === "ai" && <AiSettings />}
+            {section === "assistants" && <Assistants />}
             {section === "connections" && <Connections />}
           </div>
         ) : (
@@ -948,6 +954,179 @@ function AiSettings() {
         This uses the same sign-in as OpenAI's Codex CLI. It's unofficial: OpenAI may change or limit it, and usage counts toward your plan's
         limits. Only the conversation you summarize or reply to is sent.
       </p>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ assistants
+
+function ago(ms: number | null): string {
+  if (!ms) return "never used";
+  const min = Math.floor((Date.now() - ms) / 60000);
+  if (min < 2) return "active now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 48 * 60) return `${Math.floor(min / 60)} h ago`;
+  return `${Math.floor(min / 1440)} days ago`;
+}
+
+/** The user's own server that lets Claude, Gemini and other assistants work with their mail. */
+function Assistants() {
+  const toast = useStore((s) => s.toast);
+  const [state, setState] = useState<ServerState | null>(null);
+  const [url, setUrl] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.serverStatus().then(setState).catch((e) => toast(errorMessage(e), { kind: "error" }));
+  }, [toast]);
+
+  const run = async (work: () => Promise<ServerState | void>, done?: string) => {
+    setBusy(true);
+    try {
+      const next = await work();
+      setState(next ?? (await api.serverStatus()));
+      if (done) toast(done, { kind: "success" });
+    } catch (e) {
+      toast(errorMessage(e), { kind: "error", duration: 8000 });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const intro = (
+    <H
+      title="Assistants"
+      desc="Let Claude, Gemini or another AI assistant look things up in your mail, tidy your inbox and write drafts. It can never send: drafts wait in your Drafts folder for you."
+    />
+  );
+
+  if (!state) {
+    return (
+      <>
+        {intro}
+        <Spinner />
+      </>
+    );
+  }
+
+  if (!state.url) {
+    return (
+      <>
+        {intro}
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(async () => {
+              const next = await api.serverConnect(url, password);
+              setPassword("");
+              return next;
+            }, "Connected. Your accounts are on the server now.");
+          }}
+        >
+          <Field label="Server address" hint="Your own cigmail-server. It keeps a copy of your mail in sync so assistants can reach it while this app is closed.">
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://mail.example.org" autoCapitalize="off" autoCorrect="off" />
+          </Field>
+          <Field label="Server password" hint="The one set with cigmail-server set-password.">
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          <div>
+            <Button variant="primary" type="submit" disabled={busy || !url.trim() || !password}>
+              {busy ? "Connecting…" : "Connect"}
+            </Button>
+          </div>
+        </form>
+        <p className="mt-6 text-xs leading-relaxed text-fg-3">
+          Connecting sends this app's accounts and their sign-ins to the server, and again whenever you add or reconnect one. Only use a server
+          you run yourself.
+        </p>
+      </>
+    );
+  }
+
+  const status = state.status;
+  const assistants = status?.devices.filter((d) => d.kind === "assistant") ?? [];
+  const apps = status?.devices.filter((d) => d.kind === "app" && d.id !== status.deviceId) ?? [];
+  return (
+    <>
+      {intro}
+      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-line-strong p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent-soft">
+          <Bot size={18} className="text-accent" />
+        </div>
+        <div className="min-w-[12rem] flex-1">
+          <div className="text-[13px] font-medium">{state.error ? "Can't reach the server" : "Connected to your server"}</div>
+          <div className="break-all text-xs text-fg-3">{state.error ?? state.url}</div>
+        </div>
+        <Button
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            const wipe = window.confirm("Also delete your mail and sign-ins from the server?\n\nOK: delete them. Cancel: only disconnect this app.");
+            run(() => api.serverDisconnect(wipe), wipe ? "Disconnected, and the server was cleared" : "Disconnected");
+          }}
+        >
+          Disconnect
+        </Button>
+      </div>
+
+      {state.mcpUrl && (
+        <Row label="Address for assistants" desc="Add it as a custom connector in Claude (Settings → Connectors) or Gemini, then sign in with the server password.">
+          <div className="flex items-center gap-2">
+            <code className="rounded bg-elev px-2 py-1 text-xs">{state.mcpUrl}</code>
+            <IconButton label="Copy" onClick={() => writeText(state.mcpUrl!).then(() => toast("Copied"))}>
+              <Copy size={14} />
+            </IconButton>
+          </div>
+        </Row>
+      )}
+
+      {status && (
+        <>
+          <h3 className="mb-1 mt-6 text-xs font-medium uppercase tracking-wide text-fg-3">Accounts on the server</h3>
+          {status.accounts.length === 0 && <p className="py-3 text-[13px] text-fg-3">None yet. Add an account in this app and it is sent over.</p>}
+          {status.accounts.map((a) => (
+            <Row key={a.id} label={a.email} desc={a.lastError ?? (a.lastSync ? "Syncing" : "First sync in progress")}>
+              {a.lastError && <span className="text-xs text-danger">Needs attention</span>}
+            </Row>
+          ))}
+          <div className="mt-3">
+            <Button variant="ghost" disabled={busy} onClick={() => run(() => api.serverPush(), "Accounts sent to the server")}>
+              <RefreshCw size={13} /> Send accounts again
+            </Button>
+          </div>
+
+          <h3 className="mb-1 mt-6 text-xs font-medium uppercase tracking-wide text-fg-3">Connected assistants</h3>
+          {assistants.length === 0 && <p className="py-3 text-[13px] text-fg-3">None yet.</p>}
+          {assistants.map((d) => (
+            <Row key={d.id} label={d.name} desc={`${d.canWrite ? "Can read, tidy up and write drafts" : "Can only read"} · ${ago(d.lastSeenAt)}`}>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Disconnect ${d.name}? It loses access to your mail at once.`)) run(() => api.serverRemoveDevice(d.id));
+                }}
+              >
+                Disconnect
+              </Button>
+            </Row>
+          ))}
+
+          {apps.length > 0 && (
+            <>
+              <h3 className="mb-1 mt-6 text-xs font-medium uppercase tracking-wide text-fg-3">Other devices with CigMail</h3>
+              {apps.map((d) => (
+                <Row key={d.id} label={d.name} desc={ago(d.lastSeenAt)}>
+                  <Button variant="ghost" disabled={busy} onClick={() => run(() => api.serverRemoveDevice(d.id))}>
+                    Remove
+                  </Button>
+                </Row>
+              ))}
+            </>
+          )}
+        </>
+      )}
     </>
   );
 }
