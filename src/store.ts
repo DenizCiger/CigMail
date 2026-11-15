@@ -308,6 +308,11 @@ export const useStore = create<State>((set, get) => ({
       get().toast(`Couldn't apply “${e.payload.action}” on ${e.payload.account}: ${e.payload.error}`, { kind: "error", duration: 0 });
       scheduleRefresh();
     });
+    // A notification about one conversation was clicked (Linux).
+    listen<string>("notification:open", (e) => {
+      if (get().view !== "inbox") get().setView("inbox");
+      get().openThread(e.payload);
+    });
     listen<string>("outbox:sent", () => get().toast("Message sent", { kind: "success", duration: 2500 }));
     listen<{ id: string; error: string }>("outbox:failed", async (e) => {
       const failed = await api.failedSends();

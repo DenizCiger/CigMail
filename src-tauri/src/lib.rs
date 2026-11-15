@@ -1,12 +1,16 @@
 mod ai;
+mod background;
 mod commands;
 mod error;
+#[cfg(target_os = "linux")]
+mod linux;
 mod server;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(target_os = "linux"))]
 use tauri_plugin_notification::NotificationExt;
 
 // The mail engine lives in its own crate, shared with the server for AI assistants.
@@ -15,15 +19,44 @@ pub(crate) use cigmail_core::{config, db, http_client, mime, models, oauth, prov
 use commands::AppState;
 
 /// The engine's view of the app: events go to the window, notifications to the system.
-struct AppHost(AppHandle);
+struct AppHost {
+    app: AppHandle,
+    /// Clickable notifications; the notification plugin's can't be clicked on Linux.
+    #[cfg(target_os = "linux")]
+    notifier: Arc<linux::Notifier>,
+}
+
+impl AppHost {
+    fn new(app: AppHandle) -> Self {
+        AppHost {
+            #[cfg(target_os = "linux")]
+            notifier: Arc::new(linux::Notifier::new(app.clone())),
+            app,
+        }
+    }
+}
 
 impl cigmail_core::Host for AppHost {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        let _ = self.0.emit(event, payload);
+        let _ = self.app.emit(event, payload);
     }
 
     fn notify(&self, title: &str, body: &str) {
-        let _ = self.0.notification().builder().title(title).body(body).show();
+        #[cfg(target_os = "linux")]
+        self.notifier.show(title, body, None);
+        #[cfg(not(target_os = "linux"))]
+        let _ = self.app.notification().builder().title(title).body(body).show();
+    }
+
+    fn notify_thread(&self, title: &str, body: &str, thread_id: &str) {
+        #[cfg(target_os = "linux")]
+        self.notifier.show(title, body, Some(thread_id));
+        // Elsewhere a click opens the app at best; the thread is still at the top of the inbox.
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = thread_id;
+            self.notify(title, body);
+        }
     }
 }
 
@@ -46,7 +79,15 @@ pub fn run() {
     // Several dependencies pull in rustls; pick one crypto provider for all of them.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    tauri::Builder::default()
+    #[allow(unused_mut)] // only desktop adds plugins here
+    let mut builder = tauri::Builder::default();
+    // A second launch (say, from the menu while the app sits in the tray after starting at
+    // login) opens the running instance's window instead of starting a second engine.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| background::show_main(app)));
+    }
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -60,7 +101,7 @@ pub fn run() {
                 .timeout(Duration::from_secs(120))
                 .build()?;
             let engine = sync::Engine::new(
-                Arc::new(AppHost(app.handle().clone())),
+                Arc::new(AppHost::new(app.handle().clone())),
                 tauri::async_runtime::handle().inner().clone(),
                 db.clone(),
                 secrets.clone(),
@@ -76,8 +117,12 @@ pub fn run() {
                 ai_tasks: Mutex::new(HashMap::new()),
             });
             engine.start_all()?;
+            #[cfg(target_os = "android")]
+            let _ = background::ENGINE.set(engine.clone());
+            background::setup(app)?;
             Ok(())
         })
+        .on_window_event(background::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::list_accounts,
             commands::add_oauth_account,
@@ -126,7 +171,10 @@ pub fn run() {
             server::server_push,
             server::server_disconnect,
             server::server_remove_device,
+            background::get_autostart,
+            background::set_autostart,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| background::on_run_event(app, &event));
 }

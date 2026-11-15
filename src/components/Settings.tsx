@@ -202,6 +202,39 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
 
 // ------------------------------------------------------------------ general
 
+/** Desktop: whether CigMail keeps checking mail (and notifying) with its window closed. */
+function Background() {
+  const settings = useStore((s) => s.settings);
+  const setSetting = useStore((s) => s.setSetting);
+  const toast = useStore((s) => s.toast);
+  // null: this system can't start CigMail at login.
+  const [autostart, setAutostart] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.getAutostart().then(setAutostart, () => setAutostart(null));
+  }, []);
+  const keepRunning = settings.close_to_tray !== "false";
+  return (
+    <>
+      <Row label="Keep running when closed" desc="Closing the window leaves CigMail in the tray, checking for mail.">
+        <Switch checked={keepRunning} onChange={(v) => setSetting("close_to_tray", String(v))} />
+      </Row>
+      {autostart !== null && (
+        <Row label="Start at login" desc="Opens in the tray when you log in, so notifications arrive without opening CigMail.">
+          <Switch
+            checked={autostart}
+            onChange={(v) =>
+              api.setAutostart(v).then(
+                () => setAutostart(v),
+                (e) => toast(errorMessage(e), { kind: "error" }),
+              )
+            }
+          />
+        </Row>
+      )}
+    </>
+  );
+}
+
 function General() {
   const settings = useStore((s) => s.settings);
   const setSetting = useStore((s) => s.setSetting);
@@ -250,9 +283,10 @@ function General() {
           ]}
         />
       </Row>
-      <Row label="Desktop notifications" desc="Only for new mail in the Important split.">
+      <Row label={isMobile ? "Notifications" : "Desktop notifications"} desc="Only for new mail in the Important split.">
         <Switch checked={settings.notifications !== "false"} onChange={(v) => setSetting("notifications", String(v))} />
       </Row>
+      {!isMobile && <Background />}
       {accounts.length > 1 && (
         <Row label="Default account for new messages">
           <Select

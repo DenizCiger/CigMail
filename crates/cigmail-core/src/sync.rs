@@ -209,18 +209,17 @@ impl Engine {
             return;
         }
         let _ = self.db.set_setting(&key, &new[0].last_date.to_string());
-        let (title, body) = if new.len() == 1 {
-            let t = &new[0];
+        if let [t] = new.as_slice() {
             let who = t
                 .participants
                 .last()
                 .map(|p| p.name.clone().unwrap_or_else(|| p.email.clone()))
                 .unwrap_or_default();
-            (who, t.subject.clone())
+            self.host.notify_thread(&who, &t.subject, &t.id);
         } else {
-            (format!("{} new emails", new.len()), new.iter().map(|t| t.subject.clone()).collect::<Vec<_>>().join(" · "))
-        };
-        self.host.notify(&title, &body);
+            let body = new.iter().map(|t| t.subject.clone()).collect::<Vec<_>>().join(" · ");
+            self.host.notify(&format!("{} new emails", new.len()), &body);
+        }
     }
 
     async fn outbox_loop(self: Arc<Self>) {

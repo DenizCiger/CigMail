@@ -10,6 +10,11 @@ pub trait Host: Send + Sync + 'static {
 
     /// A system notification: new mail, a snoozed conversation coming back.
     fn notify(&self, title: &str, body: &str);
+
+    /// A notification about one conversation: clicking it should open that conversation.
+    fn notify_thread(&self, title: &str, body: &str, _thread_id: &str) {
+        self.notify(title, body);
+    }
 }
 
 /// Nobody is watching.

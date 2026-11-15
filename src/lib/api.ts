@@ -64,6 +64,9 @@ export const api = {
 
   getSettings: () => invoke<Record<string, string>>("get_settings"),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
+  /** null when this system can't start CigMail at login. */
+  getAutostart: () => invoke<boolean | null>("get_autostart"),
+  setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   getSplits: () => invoke<Split[]>("get_splits"),
   setSplits: (splits: Split[]) => invoke<void>("set_splits", { splits }),
   oauthConfigStatus: () => invoke<{ google: boolean; microsoft: boolean }>("oauth_config_status"),
