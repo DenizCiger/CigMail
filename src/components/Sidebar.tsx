@@ -20,6 +20,7 @@ import {
 import { useStore } from "../store";
 import type { View } from "../lib/types";
 import { AccountDot, Spinner, useMediaQuery } from "./ui";
+import { AppIcon } from "./AppIcon";
 import { accountLabel, mod } from "../lib/format";
 
 const NAV: { view: View; label: string; icon: LucideIcon; keys: string[] }[] = [
@@ -128,9 +129,7 @@ export function Sidebar() {
   return (
     <aside className="flex w-[232px] shrink-0 flex-col px-2.5 pb-2.5 pt-3">
       <div className="mb-3 flex items-center gap-2 px-1.5">
-        <div className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-gradient-to-br from-[#7c86e6] to-[#4f5bc4] text-[11px] font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]">
-          C
-        </div>
+        <AppIcon className="h-6 w-6" />
         <span className="flex-1 text-[13.5px] font-semibold tracking-tight">CigMail</span>
         <button
           onClick={() => compose()}

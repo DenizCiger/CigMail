@@ -3,6 +3,7 @@ import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notif
 import { useStore } from "../store";
 import { useTheme } from "../App";
 import { Button, ProviderGlyph } from "../components/ui";
+import { AppIcon } from "../components/AppIcon";
 import { Composer } from "../components/Composer";
 import { Settings } from "../components/Settings";
 import { Toasts } from "../components/Toasts";
@@ -19,9 +20,7 @@ function Welcome() {
     <div className="flex h-full flex-col items-center justify-center bg-panel px-8 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-center animate-in">
       <div className="relative mb-6">
         <div className="absolute inset-0 rounded-2xl bg-accent/25 blur-2xl" />
-        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7c86e6] to-[#4f5bc4] text-3xl font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]">
-          C
-        </div>
+        <AppIcon className="relative h-[72px] w-[72px]" />
       </div>
       <h1 className="text-[24px] font-semibold tracking-tight">Welcome to CigMail</h1>
       <p className="mt-2 text-[15px] leading-relaxed text-fg-2">One fast inbox for all your accounts. Connect Gmail, Outlook and any IMAP mailbox to get started.</p>

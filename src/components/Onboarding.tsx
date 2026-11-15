@@ -1,5 +1,6 @@
 import { useStore } from "../store";
 import { Button, Kbd, ProviderGlyph } from "./ui";
+import { AppIcon } from "./AppIcon";
 
 export function Onboarding() {
   const set = useStore((s) => s.set);
@@ -8,9 +9,7 @@ export function Onboarding() {
       <div className="flex w-[440px] flex-col items-center text-center animate-in">
         <div className="relative mb-6">
           <div className="absolute inset-0 rounded-2xl bg-accent/25 blur-2xl" />
-          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7c86e6] to-[#4f5bc4] text-2xl font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]">
-            C
-          </div>
+          <AppIcon className="relative h-16 w-16" />
         </div>
         <h1 className="text-[22px] font-semibold tracking-tight">Welcome to CigMail</h1>
         <p className="mt-2 text-[13.5px] leading-relaxed text-fg-2">

@@ -4,6 +4,7 @@ import { useStore } from "../store";
 import { accountLabel } from "../lib/format";
 import type { View } from "../lib/types";
 import { Spinner } from "../components/ui";
+import { AppIcon } from "../components/AppIcon";
 import { useBackLayer } from "./back";
 
 const NAV: { view: View; label: string; icon: LucideIcon }[] = [
@@ -56,7 +57,7 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
         )}
       >
         <div className="flex items-center gap-3 px-6 pb-4 pt-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#7c86e6] to-[#4f5bc4] text-[17px] font-bold text-white">C</div>
+          <AppIcon className="h-10 w-10" />
           <span className="text-[17px] font-semibold tracking-tight">CigMail</span>
         </div>
         <div className="flex flex-col px-3">
