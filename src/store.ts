@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { LucideIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { api, errorMessage } from "./lib/api";
+import { draftFromMailto } from "./lib/mailto";
 import type {
   Account,
   AiStatus,
@@ -313,6 +314,11 @@ export const useStore = create<State>((set, get) => ({
       if (get().view !== "inbox") get().setView("inbox");
       get().openThread(e.payload);
     });
+    // A mailto: link opened elsewhere: the one the app started with, then any later ones.
+    const openMailto = () =>
+      api.takeMailto().then((url) => url && get().compose(draftFromMailto(url))).catch(() => {});
+    listen("mailto:open", openMailto);
+    openMailto();
     listen<string>("outbox:sent", () => get().toast("Message sent", { kind: "success", duration: 2500 }));
     listen<{ id: string; error: string }>("outbox:failed", async (e) => {
       const failed = await api.failedSends();

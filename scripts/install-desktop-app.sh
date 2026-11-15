@@ -21,12 +21,16 @@ cat > "$HOME/.local/share/applications/cigmail.desktop" <<EOF
 [Desktop Entry]
 Name=CigMail
 Comment=Fast, keyboard-first unified email
-Exec=$HOME/.local/bin/cigmail.AppImage
+Exec=$HOME/.local/bin/cigmail.AppImage %u
 Icon=cigmail
 Terminal=false
 Type=Application
 Categories=Network;Email;Office;
 StartupNotify=true
+MimeType=x-scheme-handler/mailto;
 EOF
 chmod 644 "$HOME/.local/share/applications/cigmail.desktop"
+# Open mailto: links (from WhatsApp, the browser, ...) in CigMail.
+update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+xdg-mime default cigmail.desktop x-scheme-handler/mailto
 printf 'Installed %s to %s\n' "$(basename "$appimage")" "$HOME/.local/bin/cigmail.AppImage"

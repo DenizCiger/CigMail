@@ -713,6 +713,7 @@ dependencies = [
  "cigmail-server",
  "futures",
  "gtk",
+ "jni 0.21.1",
  "ksni",
  "lettre",
  "paranoid-android",

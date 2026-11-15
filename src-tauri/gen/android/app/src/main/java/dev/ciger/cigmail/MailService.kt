@@ -117,10 +117,21 @@ class SyncAlarm : BroadcastReceiver() {
     }
 }
 
-/** Calls into the Rust side (`background.rs`). */
+/** Calls into the Rust side (`background.rs`, `mailto.rs`). */
 object NativeBridge {
     @JvmStatic
     private external fun nativeWake()
+
+    @JvmStatic
+    private external fun nativeMailto(url: String)
+
+    fun mailto(url: String) {
+        try {
+            nativeMailto(url)
+        } catch (e: UnsatisfiedLinkError) {
+            // Not loaded yet; can't happen once the activity is up.
+        }
+    }
 
     fun wake() {
         try {

@@ -18,6 +18,7 @@ import type {
 
 export const api = {
   listAccounts: () => invoke<Account[]>("list_accounts"),
+  takeMailto: () => invoke<string | null>("take_mailto"),
   addOAuthAccount: (kind: AccountKind, label?: string) =>
     invoke<Account>("add_oauth_account", { req: { kind, label } }),
   addImapAccount: (req: { email: string; name: string; label?: string; config: ImapConfig; password?: string }) =>

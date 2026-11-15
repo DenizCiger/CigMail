@@ -36,6 +36,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="cigmail" />
             </intent-filter>
+            <!-- Offered as an email app: mailto: links from other apps open the composer. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SENDTO" />
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mailto" />
+            </intent-filter>
         </activity>
 
         <service

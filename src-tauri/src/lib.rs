@@ -2,6 +2,7 @@ mod ai;
 mod background;
 mod commands;
 mod error;
+mod mailto;
 #[cfg(target_os = "linux")]
 mod linux;
 mod server;
@@ -85,7 +86,17 @@ pub fn run() {
     // login) opens the running instance's window instead of starting a second engine.
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| background::show_main(app)));
+        // A `mailto:` link opened elsewhere (the desktop entry registers CigMail for them) starts
+        // the app with the link as an argument; in a second launch it goes to the running one.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            background::show_main(app);
+            if let Some(url) = mailto::find(args) {
+                mailto::open(url);
+            }
+        }));
+        if let Some(url) = mailto::find(std::env::args().skip(1)) {
+            mailto::open(url);
+        }
     }
     builder
         .plugin(tauri_plugin_opener::init())
@@ -119,6 +130,7 @@ pub fn run() {
             engine.start_all()?;
             #[cfg(target_os = "android")]
             let _ = background::ENGINE.set(engine.clone());
+            mailto::init(app.handle());
             background::setup(app)?;
             Ok(())
         })
@@ -173,6 +185,7 @@ pub fn run() {
             server::server_remove_device,
             background::get_autostart,
             background::set_autostart,
+            mailto::take_mailto,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
